@@ -18,3 +18,12 @@ def load_raw_matches(source: str) -> pd.DataFrame:
     # "pd.read_csv(path)" is pandas' CSV reader.
     return pd.read_csv(path)
 
+def clean_matches(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    #only takes games past the cutoff date.
+    df = df[df["date"].dt.year >= CUTOFF_YEAR]
+    # .dropna() removes rows containing missing values. 
+    # subsets=[...] restricts the check to just the two columns.
+    df = df.dropna(subset=["home_score", "away_score"])
+    return df
