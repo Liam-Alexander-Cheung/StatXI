@@ -57,3 +57,51 @@ def rolling_form(
 
     # the standard formula for a weighted mean
     return (outcomes * weights).sum() / weights.sum()
+
+
+# define head to head record
+def head_to_head_record(
+    matches: pd.DataFrame,
+    team_a: str,
+    team_b: str,
+    as_of_date: pd.Timestamp,
+    half_life_days: int = 3650,  # 10-year half-life, much gentler than rolling_form's window
+) -> float:
+    """
+    Weighted win rate for team_a against team_b specifically, across all
+    historical meetings before as_of_date. No fixed window — since two
+    teams may only meet once every several years, discarding meetings
+    older than 10 years (as rolling_form does) would leave too many
+    pairings with near-zero data. Returns float('nan') if the two teams
+    have never met.
+    """
+    h2h = matches[
+        (((matches["home_team"] == team_a) & (matches["away_team"] == team_b))
+         | ((matches["home_team"] == team_b) & (matches["away_team"] == team_a)))
+        & (matches["date"] < as_of_date)
+    ]
+
+    if len(h2h) == 0:
+        # same float nan as in rolling form
+        return float("nan")
+
+    def outcome(row) -> float:
+        if row["home_team"] == team_a:
+            a_score, b_score = row["home_score"], row["away_score"]
+        else:
+            a_score, b_score = row["away_score"], row["home_score"]
+        if a_score > b_score:
+            return 1.0
+        if a_score == b_score:
+            return 0.5
+        return 0.0
+
+    # apply weights and read every line of outcomes (axis=1)
+    outcomes = h2h.apply(outcome, axis=1)
+    weights = h2h.apply(
+        lambda row: recency_weight(row["date"], as_of_date, half_life_days)
+        * importance_weight(row["tournament"]),
+        axis=1,
+    )
+    # classic calculation like in rolling form
+    return (outcomes * weights).sum() / weights.sum()
