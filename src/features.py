@@ -105,3 +105,63 @@ def head_to_head_record(
     )
     # classic calculation like in rolling form
     return (outcomes * weights).sum() / weights.sum()
+
+
+# defining goal_trend
+def goal_trend(
+    matches: pd.DataFrame,
+    team: str,
+    as_of_date: pd.Timestamp,
+    window_years: int = 10,
+    half_life_days: int = 730,
+) -> dict:
+    """
+    Weighted average goals scored and conceded by `team`, based on matches
+    strictly before as_of_date, within the last `window_years`. Same
+    window/weighting convention as rolling_form, since both belong to the
+    same "recent form" feature cluster.
+
+    Returns {'goals_scored': nan, 'goals_conceded': nan} if no qualifying
+    history exists — kept as two separate NaN-able values rather than one
+    goal-difference scalar, since scoring and conceding are independent
+    signals (a 3-3 team and a 0.5-0.5 team both average to zero difference
+    but represent very different teams).
+    """
+    window_start = as_of_date - pd.Timedelta(days=365 * window_years)
+
+    # defnining home and away team for the 5th time
+    team_matches = matches[
+        ((matches["home_team"] == team) | (matches["away_team"] == team))
+        & (matches["date"] < as_of_date)
+        & (matches["date"] >= window_start)
+    ]
+
+    if len(team_matches) == 0:
+        return {"goals_scored": float("nan"), "goals_conceded": float("nan")}
+
+    def scored(row) -> float:
+        return row["home_score"] if row["home_team"] == team else row["away_score"]
+
+    def conceded(row) -> float:
+        return row["away_score"] if row["home_team"] == team else row["home_score"]
+
+    # apply weights funcion
+    weights = team_matches.apply(
+        # lambda for multi-collumn reading
+        lambda row: recency_weight(row["date"], as_of_date, half_life_days)
+        * importance_weight(row["tournament"]),
+        # go row by row
+        axis=1,
+    )
+    scored_vals = team_matches.apply(scored, axis=1)
+    conceded_vals = team_matches.apply(conceded, axis=1)
+
+    return {
+        # basic scored/conceded/differential calculations
+        "goals_scored": (scored_vals * weights).sum() / weights.sum(),
+        "goals_conceded": (conceded_vals * weights).sum() / weights.sum(),
+        "goal_differential": (
+            (scored_vals * weights).sum() / weights.sum()
+            - (conceded_vals * weights).sum() / weights.sum()
+        ),
+    }
