@@ -180,11 +180,13 @@ def transfer_value_delta_z(
     not per-player, so this function only returns raw values; the caller
     z-scores across the full squad list.
     """
+    # fetch market value history from data pipeline
     from src.data_pipeline import fetch_market_value_history
 
     history = fetch_market_value_history(player_id)
 
     parsed = [
+        # parse transfermarkkt's day/month/year format
         {"date": datetime.strptime(p["datum_mw"], "%d/%m/%Y"), "value": p["y"]}
         for p in history
     ]
@@ -193,6 +195,7 @@ def transfer_value_delta_z(
     target_recent = as_of_date
     target_past = as_of_date - pd.Timedelta(days=30 * months_back)
 
+    # closest value takes the most recent valuation at or before the target date
     def closest_value(target: pd.Timestamp) -> float:
         candidates = [p for p in parsed if p["date"] <= target]
         if not candidates:

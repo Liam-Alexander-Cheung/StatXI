@@ -205,3 +205,44 @@ def fetch_market_value_history(player_id: str) -> list[dict]:
     resp.raise_for_status()
     return resp.json()["list"]
 
+
+
+import re
+from bs4 import BeautifulSoup
+
+
+def search_player_id(name: str) -> list[dict]:
+    """
+    Search Transfermarkt's internal quick-search endpoint for a player
+    name. Returns a list of candidate matches (player_id + display name)
+    rather than a single "best guess" — common surnames return multiple
+    results, and silently picking the first one risks matching the wrong
+    player entirely.
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+    resp = requests.get(
+        "https://www.transfermarkt.com/schnellsuche/ergebnis/schnellsuche",
+        params={"query": name},
+        headers=headers,
+    )
+    resp.raise_for_status()
+    # html parser
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    seen_ids = set()
+    results = []
+    # soup.select("a[href*='/profil/spieler/']") is a CSS selector
+    for link in soup.select("a[href*='/profil/spieler/']"):
+        match = re.search(r"/profil/spieler/(\d+)", link.get("href", ""))
+        # link.get_text(strip=True) can pull the visible text 
+        display_name = link.get_text(strip=True)
+        if not match or not display_name:
+            continue
+        player_id = match.group(1)
+        # seen_ids is our deduplication
+        if player_id in seen_ids:
+            continue
+        seen_ids.add(player_id)
+        results.append({"player_id": player_id, "name": display_name})
+
+    return results
