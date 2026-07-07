@@ -157,7 +157,7 @@ def goal_trend(
     conceded_vals = team_matches.apply(conceded, axis=1)
 
     return {
-        # basic scored/conceded/differential calculations
+        # basic scored/conceded/differential calculations for trend
         "goals_scored": (scored_vals * weights).sum() / weights.sum(),
         "goals_conceded": (conceded_vals * weights).sum() / weights.sum(),
         "goal_differential": (
@@ -165,3 +165,38 @@ def goal_trend(
             - (conceded_vals * weights).sum() / weights.sum()
         ),
     }
+
+
+
+from datetime import datetime
+
+def transfer_value_delta_z(
+    player_id: str, as_of_date: pd.Timestamp, months_back: int = 12
+) -> tuple[float, float]:
+    """
+    Returns (value_at_as_of_date, value_months_back), both in raw euros,
+    picked as the closest available data point to each target date. Not
+    z-scored yet — that normalization happens across a whole player cohort,
+    not per-player, so this function only returns raw values; the caller
+    z-scores across the full squad list.
+    """
+    from src.data_pipeline import fetch_market_value_history
+
+    history = fetch_market_value_history(player_id)
+
+    parsed = [
+        {"date": datetime.strptime(p["datum_mw"], "%d/%m/%Y"), "value": p["y"]}
+        for p in history
+    ]
+    parsed.sort(key=lambda p: p["date"])
+
+    target_recent = as_of_date
+    target_past = as_of_date - pd.Timedelta(days=30 * months_back)
+
+    def closest_value(target: pd.Timestamp) -> float:
+        candidates = [p for p in parsed if p["date"] <= target]
+        if not candidates:
+            return float("nan")
+        return candidates[-1]["value"]
+
+    return closest_value(target_recent), closest_value(target_past)

@@ -181,3 +181,27 @@ def add_match_weights(
         axis=1,
     )
     return df
+
+
+
+
+
+import requests
+
+def fetch_market_value_history(player_id: str) -> list[dict]:
+    """
+    Fetch a player's full market-value-over-time history from
+    Transfermarkt's internal (undocumented) API.
+
+    Note: this hits an internal endpoint discovered via reverse-engineering,
+    not a published API. No formal rate limit is documented, so this
+    deliberately does not batch-call without a delay — see caller code for
+    sleep/backoff when looping over many players.
+    """
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+    url = f"https://www.transfermarkt.com/ceapi/marketValueDevelopment/graph/{player_id}"
+    resp = requests.get(url, headers=headers)
+    # help with error messages
+    resp.raise_for_status()
+    return resp.json()["list"]
+
