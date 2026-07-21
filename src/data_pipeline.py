@@ -17,29 +17,25 @@ NON_FIFA_TOURNAMENTS = {
 }
 
 
-def load_raw_matches(source: str) -> pd.DataFrame:
-    """
-    Load a raw match-results CSV from data/raw/.
-    """
-    # creates a filesystem path.
-    path = RAW_DIR / source
-    # "pd.read_csv(path)" is pandas' CSV reader.
-    return pd.read_csv(path)
+from src.database import get_connection
 
-def clean_matches(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    df["date"] = pd.to_datetime(df["date"])
-    #only takes games past the cutoff date.
-    df = df[df["date"].dt.year >= CUTOFF_YEAR]
-    # .dropna() removes rows containing missing values. 
-    # subsets=[...] restricts the check to just the two columns.
-    df = df.dropna(subset=["home_score", "away_score"])
+def load_raw_matches(source: str = None) -> pd.DataFrame:
+    """
+    Load match data from the SQLite database. The `source` parameter is
+    kept for backward compatibility with existing calls but is no longer
+    used — data now comes from the matches table, not a named CSV file.
+    """
+    conn = get_connection()
+    df = pd.read_sql("SELECT * FROM matches", conn)
+    conn.close()
     return df
 
-# loads former names
+
 def load_former_names() -> pd.DataFrame:
-    """Load the team name history lookup table."""
-    df = pd.read_csv(RAW_DIR / "former_names.csv")
+    """Load the team name history lookup table from the database."""
+    conn = get_connection()
+    df = pd.read_sql("SELECT * FROM former_names", conn)
+    conn.close()
     df["start_date"] = pd.to_datetime(df["start_date"])
     df["end_date"] = pd.to_datetime(df["end_date"])
     return df
@@ -51,7 +47,6 @@ def resolve_team_name(name: str, date: pd.Timestamp, former_names: pd.DataFrame)
     return the name unchanged (it's already current, or has no history).
     """
     matches = former_names[
-        # is this a country that has historical aliases?
         (former_names["former"] == name)
         & (former_names["start_date"] <= date)
         & (former_names["end_date"] >= date)
@@ -59,7 +54,6 @@ def resolve_team_name(name: str, date: pd.Timestamp, former_names: pd.DataFrame)
     if len(matches) == 0:
         return name
     return matches.iloc[0]["current"]
-
 
 ## normalises the team names although completely useless for this database as it already uses the same names everywhere. 
 def normalize_team_names(df: pd.DataFrame, former_names: pd.DataFrame) -> pd.DataFrame:

@@ -9,3 +9,4 @@ data/processed/*
 .DS_Store
 .env
 terminal_prompts.txt
+data/euro2028.db
