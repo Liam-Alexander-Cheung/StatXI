@@ -87,3 +87,41 @@ can move from "flagged" to "already-priced-in, no longer flagged" within a
 single tournament cycle. Worth testing against Euro 2020 (Musiala's actual
 breakout window) or a still-emerging talent (e.g. Lamine Yamal ahead of
 Euro 2024) as a sharper positive control case.
+
+## Migration from CSV to SQLite
+
+Initial motivation was "CSVs are inefficient at scale" — worth correcting
+that reasoning explicitly, since it isn't actually true at this size.
+32,140 rows parses via `pd.read_csv` in well under a second; raw
+performance was never the real bottleneck. The genuine reason to migrate
+is relational structure: upcoming squad-level data (tournaments → squads →
+players → market value history) has real foreign-key relationships that
+flat CSVs handle poorly, requiring hand-written pandas joins in place of
+what a database does natively. SQLite was chosen over Postgres/MySQL as
+the right tool for this scale — single-file, serverless, part of Python's
+standard library, no infrastructure to run or maintain.
+
+Design choice: the migration only touches how data enters the pipeline
+(`load_raw_matches`, `load_former_names` now query SQLite instead of
+reading CSVs), while every downstream function (`clean_matches`,
+`rolling_form`, `head_to_head_record`, `goal_trend`) is completely
+untouched — they operate on the returned DataFrame regardless of its
+source. This is deliberate: it contained the risk of the migration to two
+functions instead of rewriting an entire proven pipeline at once.
+
+**Caught during verification:** re-running the same Germany/San Marino
+proof cases used throughout this project (rather than just checking that
+the new code "looked right") surfaced a real regression — `resolve_team_name`
+had been accidentally dropped entirely while rewriting the surrounding
+functions, breaking `normalize_team_names` downstream with a `NameError`.
+Fixed by restoring the function; identical output (`(32140, 9)`, Germany
+0.7936, San Marino 0.0) confirmed against pre-migration numbers afterward.
+Worth noting as a concrete example of why re-running known test cases after
+a refactor matters more than reading a diff — the deletion wouldn't have
+been visually obvious in a quick review, but it broke observable behavior
+immediately.
+
+The database file itself (`data/euro2028.db`) is not committed to the
+repository — same reasoning as the raw CSVs it replaced: it's regenerable
+by running `migrate_to_db.py` against the source data, and derived data
+doesn't belong in version control.
