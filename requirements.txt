@@ -8,3 +8,4 @@ seaborn>=0.13
 requests>=2.31
 jupyter>=1.0
 pytest>=8.0beautifulsoup4>=4.12
+lxml>=5.0
