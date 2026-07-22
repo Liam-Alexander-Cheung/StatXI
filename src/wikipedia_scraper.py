@@ -8,16 +8,12 @@ WIKI_HEADERS = {
 }
 
 
-def fetch_tournament_squads(wiki_page: str) -> pd.DataFrame:
+def fetch_tournament_squads(wiki_page: str, tournament_name: str) -> pd.DataFrame:
     """
-    Scrape all national squad rosters from a Wikipedia "XXXX squads" page
-    (e.g. "UEFA_Euro_2024_squads"). Returns one DataFrame with all
-    countries' rosters combined, tagged with a `country` column.
-
-    Roster tables are identified by content shape ("No." and "Pos."
-    columns present), not by heading position or count — this survives
-    tournaments with different team counts or a differently-placed stats
-    section, unlike hardcoding "the first N headings".
+    Scrape all national squad rosters from a Wikipedia "XXXX squads" page.
+    tournament_name is a human-readable label (e.g. "Euro 2024") stored
+    alongside each row, since the same country appears across multiple
+    tournaments and rows need to be distinguishable once combined.
     """
     url = f"https://en.wikipedia.org/wiki/{wiki_page}"
     resp = requests.get(url, headers=WIKI_HEADERS)
@@ -39,6 +35,7 @@ def fetch_tournament_squads(wiki_page: str) -> pd.DataFrame:
         # shortcut for pandas to parse an html <table> element directly into a dataframe
         # which handles header rows and cell structure automatically 
         df["country"] = country
+        df["tournament"] = tournament_name
         all_squads.append(df)
 
     return pd.concat(all_squads, ignore_index=True)
