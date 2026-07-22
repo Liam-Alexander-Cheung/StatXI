@@ -125,3 +125,62 @@ The database file itself (`data/euro2028.db`) is not committed to the
 repository — same reasoning as the raw CSVs it replaced: it's regenerable
 by running `migrate_to_db.py` against the source data, and derived data
 doesn't belong in version control.
+
+## Data currency: why there's no auto-refresh pipeline
+
+Two data sources have fundamentally different lifecycles, and treating
+them the same would be a mistake:
+
+**Wikipedia tournament squad pages (1990-2024) are historical and frozen.**
+These describe events that already happened; nothing meaningful changes
+about Euro 2004's roster years later. Re-scraping only matters if a
+structural error is suspected (Wikipedia's own markup has changed at least
+once during this project — the `mw-headline` span disappeared at some
+point, breaking an early heading selector) or a specific anomaly needs
+re-checking. An occasional manual rerun is the right cadence, not a
+scheduled job with nothing new to find.
+
+**The Kaggle match-results dataset is genuinely live** — it already
+contained unplayed July 2026 World Cup fixtures with null scores at the
+time of the original download, confirmed and handled explicitly in
+`clean_matches`. This data does warrant occasional manual refreshing
+(before major project milestones: backtesting, final report), but not an
+unattended automated scraper — a periodic manual redownload is simpler,
+safer, and sufficient.
+
+**The more important finding: there is no Euro 2028 squad data to
+auto-refresh toward in the first place.** Major tournaments announce final
+squads 3-4 weeks before kickoff — for Euro 2028 (June 2028), that means
+roughly May 2028. This project's actual deadlines (Projektbeschreibung due
+January 2027; Regionalwettbewerb February/March 2027) fall over a full
+year *before* any real Euro 2028 squad will exist to scrape.
+
+**Consequence for what this project can actually claim:** the deliverable
+is not a live Euro 2028 prediction — that's structurally impossible on
+this timeline. It is (1) backtested model accuracy against real historical
+tournaments (Euro 2016/2020/2024, benchmarked against baseline and
+bookmaker odds), and (2) a hypothetical Euro 2028 run using projected
+qualification scenarios and provisional squad data, clearly labelled as
+speculative rather than final. Tracking qualification scenarios as they
+firm up is an explicit, ongoing task (see Tomás's workstream list).
+
+## Squad-table anomaly: FR Yugoslavia at Euro 1992
+
+The initial scrape of `squads` showed 9 countries for Euro 1992, when the
+tournament actually had 8 participants. Investigation: Yugoslavia qualified
+for Euro 1992 but was suspended from competing due to UN sanctions before
+the tournament began; CIS was invited as a late replacement. Wikipedia's
+page retains Yugoslavia's originally-qualified squad for historical
+completeness, in a section with the same `No.`/`Pos.` table structure our
+`fetch_tournament_squads` filter checks for — meaning the filter correctly
+identified a real roster-shaped table, but couldn't distinguish "a squad
+that actually competed" from "a squad that was named but never played,"
+since that distinction isn't visible in table shape alone.
+
+Fixed by explicitly removing the FR Yugoslavia rows for Euro 1992. Not
+patched with a general rule, since this is a specific, known historical
+case (late disqualification/replacement) rather than a systematic scraper
+flaw — worth remembering that any tournament with a similar late
+withdrawal could produce the same kind of entry, and it would only surface
+if a row/country count looks suspicious enough to check by hand, as
+happened here.
