@@ -10,3 +10,4 @@ data/processed/*
 .env
 terminal_prompts.txt
 data/euro2028.db
+squads_flat_backup.csv
