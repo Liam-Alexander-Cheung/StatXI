@@ -184,3 +184,76 @@ flaw — worth remembering that any tournament with a similar late
 withdrawal could produce the same kind of entry, and it would only surface
 if a row/country count looks suspicious enough to check by hand, as
 happened here.
+
+## Relational schema: tournaments → squads → players
+
+Replaced the flat `squads` table (one row per player, country and
+tournament as plain string columns) with a proper three-table relational
+structure: `tournaments` (18 rows, one per competition), `squads` (~380
+rows, one per team per tournament), `players` (10,058 rows, one per
+roster entry), linked via foreign keys (`squads.tournament_id` →
+`tournaments.tournament_id`, `players.squad_id` → `squads.squad_id`).
+
+Also parsed two previously-raw string fields into real typed columns:
+`"8 February 1995 (aged 29)"` split into an ISO date and an integer age;
+player names had footnote markers (`*`, `†`) and `"(captain)"` suffixes
+stripped, with captain status promoted to its own boolean column rather
+than left as unstructured text.
+
+Known limitation, left deliberately unresolved for now: a real person
+(e.g. Kimmich) appears as multiple separate, unlinked `players` rows
+across different tournaments — there is currently no way to say "these
+rows are the same human." A `transfermarkt_player_id` column exists on
+`players` for this purpose but is left NULL until the Transfermarkt
+name-matching/disambiguation work (see "Name-matching risk" above) is
+actually completed. Not faked with a guessed link.
+
+Note: SQLite does not enforce foreign key constraints by default — `PRAGMA
+foreign_keys = ON` must be set explicitly per connection, or invalid
+references would be silently accepted rather than rejected.
+
+## Bug: schema-building script destroyed its own source data mid-run
+
+The first version of `build_squad_schema.py` read the existing flat
+`squads` table into memory, then called `conn.executescript()` containing
+both `DROP TABLE squads` and the new `CREATE TABLE squads` (empty,
+relational). Python's `sqlite3.executescript()` commits before returning,
+not after the whole calling function finishes — so the moment that call
+ran, the old flat table was destroyed and replaced, permanently, before
+the row-insertion loop (which uses the in-memory `flat` variable) ever
+reached the data that mattered. A few lines later, the loop crashed on an
+unrelated bug (a `None` player name), but the flat table was already gone
+by that point regardless of the crash.
+
+Recovered because the underlying source (Wikipedia) is still live and the
+scrape is fully reproducible — re-running `scrape_all_squads.py` rebuilt
+the flat table from scratch. Fix going forward: the script now writes an
+independent CSV backup of `flat` (`squads_flat_backup.csv`) before running
+any DROP/CREATE statements, so a mid-script crash can no longer mean data
+only existed in one fragile, destroyable place. Also fixed the crash
+itself: `clean_player_name` now returns `None` for non-string input
+instead of raising, and the insertion loop skips and counts such rows
+rather than crashing the whole run.
+
+## Bug: Wikipedia footnote markers silently corrupted the World Cup 2002 scrape
+
+After the fix above, the insertion loop reported skipping exactly 736
+rows — suspicious specifically because 736 = 32 teams × 23 players,
+matching World Cup 2002's own printed squad count exactly, suggesting one
+entire tournament's data was affected rather than scattered individual
+rows. Investigation confirmed: that Wikipedia page has per-country
+footnote citations on its table headers (e.g. `Player[4]`, `Player[5]`,
+each country citing a different footnote number), so `pd.read_html` gave
+each country's table a uniquely-numbered `"Player[N]"` column instead of
+a plain `"Player"` column. The roster-detection filter still correctly
+identified these as real roster tables (`"No."` is a substring of
+`"No.[4]"`), but `pd.concat` couldn't recognize `"Player"` and
+`"Player[4]"` as the same field, silently producing ~30 near-duplicate
+columns and leaving every row's plain `"Player"` column null.
+
+Fixed by stripping trailing `[\d+]` footnote markers from every column
+name immediately after parsing each table, before concatenation. Re-ran
+the full 18-tournament scrape afterward — skip count dropped from 736 to
+0, confirming the fix and, importantly, that no *other* tournament had a
+milder, less-obvious version of the same bug that a smaller, less
+suspicious skip count might have let slip past unnoticed.

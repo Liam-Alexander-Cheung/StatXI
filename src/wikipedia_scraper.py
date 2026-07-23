@@ -7,6 +7,14 @@ WIKI_HEADERS = {
     "User-Agent": "euro2028-prediction research project (student Jugend forscht entry; contact: coding@liamcheung.de)"
 }
 
+import re  # needed for stripping footnote markers from column headers
+
+def _clean_column_name(col):
+    """Strip trailing Wikipedia footnote reference markers like '[4]' from a
+    column header, so tables citing different footnotes still produce
+    identically-named columns (e.g. always 'Player', never 'Player[4]')."""
+    return re.sub(r"\[\d+\]$", "", str(col)).strip()
+
 
 def fetch_tournament_squads(wiki_page: str, tournament_name: str) -> pd.DataFrame:
     """
@@ -34,6 +42,7 @@ def fetch_tournament_squads(wiki_page: str, tournament_name: str) -> pd.DataFram
         df = pd.read_html(StringIO(str(table)))[0]
         # shortcut for pandas to parse an html <table> element directly into a dataframe
         # which handles header rows and cell structure automatically 
+        df.columns = [_clean_column_name(c) for c in df.columns]  # fixes the World Cup 2002 footnote-header bug
         df["country"] = country
         df["tournament"] = tournament_name
         all_squads.append(df)
