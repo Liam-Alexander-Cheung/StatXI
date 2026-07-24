@@ -15,6 +15,9 @@ def get_matches():
         _matches_cache = clean_matches(df)
     return _matches_cache
 
+# warm the cache immediately at startup, not on the first request —
+# otherwise whichever user happens to click first eats a ~14s delay
+get_matches()
 
 @app.route("/")
 def hello():
@@ -34,6 +37,13 @@ def api_rolling_form():
         return jsonify({"error": f"no recent match data for '{team}'"}), 404
 
     return jsonify({"team": team, "rolling_form": round(form, 3)})
+
+
+@app.route("/api/teams")
+def api_teams():
+    matches = get_matches()
+    teams = sorted(set(matches["home_team"]) | set(matches["away_team"]))
+    return jsonify(teams)
 
 
 if __name__ == "__main__":
