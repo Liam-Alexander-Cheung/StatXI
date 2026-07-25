@@ -257,3 +257,69 @@ the full 18-tournament scrape afterward — skip count dropped from 736 to
 0, confirming the fix and, importantly, that no *other* tournament had a
 milder, less-obvious version of the same bug that a smaller, less
 suspicious skip count might have let slip past unnoticed.
+
+## Web layer: exposing match-level features via Flask
+
+Built incrementally, one feature at a time, per the project's stated
+preference for small verified steps over a wholesale finished module:
+`/api/rolling-form` first, then `/api/h2h`, then `/api/goal-trend`, each
+backed by the already-proven functions in `src/features.py` and each
+paired with a dropdown in `webapp/templates/index.html`. No new model
+logic was written for the web layer — it's purely a thin routing/display
+layer over match-level features that were already built and verified.
+
+**Caching decision:** match data is loaded and cleaned once, at server
+startup (`get_matches()` called eagerly at module load, not lazily on
+first request), rather than on first request. The full clean/normalize
+pipeline takes ~14 seconds; the alternative (lazy loading) would mean
+whichever real user happens to load the page first eats that delay
+instead of it being paid once, invisibly, before anyone connects.
+
+**Finding: running `python webapp/app.py` directly fails, `python -m
+webapp.app` from the repo root doesn't.** `app.py` imports `src.data_pipeline`
+and `src.features`, but when a script is run directly, Python only adds
+*that script's own directory* (`webapp/`) to `sys.path` — not the repo
+root where the `src` package actually lives — so the import fails with
+`ModuleNotFoundError: No module named 'src'`. Running it as a module
+(`python -m webapp.app`, from the repo root) makes Python treat the
+current directory as the import root instead, which resolves correctly.
+Worth remembering since the failure mode gives no hint about *why* — it
+looks like a missing dependency, not a module-resolution/working-directory
+issue.
+
+**API design consistency:** query parameter names deliberately match the
+underlying function's own parameter names (`team_a`/`team_b` for h2h, not
+`team1`/`team2` or similar) — so `app.py` and `features.py` use the same
+vocabulary for the same concept, rather than translating between two
+naming schemes for no reason.
+
+**Edge case worth calling out explicitly: `team_a == team_b` in
+`head_to_head_record`.** The function itself has no internal guard for a
+team being compared against itself — the boolean row-mask
+`(home==A & away==B) | (home==B & away==A)` can never match a real row
+when `A == B` (a team can't play itself), so it silently falls through to
+the same "no matches found" path as a genuinely never-met pair, returning
+`NaN`. Handled at the API layer instead: `/api/h2h` checks for this
+explicitly and returns a 400 ("must be different teams") rather than
+letting it fall through to the existing NaN → 404 path, since "you asked
+a nonsensical question" (the client's fault) and "these two teams simply
+have no shared history" (not the client's fault, a real data-availability
+gap) are different failures that deserve different HTTP status codes —
+collapsing them into one path would mislabel a bad request as a missing-
+data case.
+
+**Verification, following the project's existing convention of checking
+against real, checkable football knowledge rather than just "the code
+runs":**
+- Rolling form — Germany: 0.678 (a strong, plausible recent-form score).
+- Head-to-head — Argentina vs Brazil: 0.525 (Argentina's win rate);
+  querying the reverse direction (Brazil vs Argentina) returned 0.475 —
+  confirms the two directions aren't silently symmetrized, and the two
+  numbers sum to 1.0 as expected for a competitive, century-long rivalry
+  with few draws skewing the total.
+- Goal trend — Germany: scored 2.419, conceded 1.109, differential 1.311
+  — internally consistent (2.419 − 1.109 = 1.310, matching within
+  rounding).
+- Error paths — missing query parameter, an unknown/never-met team, and
+  identical `team_a`/`team_b` each independently confirmed to return the
+  correct 400/404 and error message, never a silently fabricated number.
