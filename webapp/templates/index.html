@@ -24,6 +24,14 @@
 
     <p id="h2h-result"></p>
 
+    <h1>Goal Trend</h1>
+
+    <select id="goal-trend-select">
+        <option value="">Loading teams...</option>
+    </select>
+
+    <p id="goal-trend-result"></p>
+
     <script>
         // fetch() makes an HTTP request from JavaScript, same idea as
         // curl, but running inside the browser instead of the terminal
@@ -111,15 +119,42 @@
             }
         }
 
+        async function onGoalTrendTeamSelected() {
+            const team = document.getElementById("goal-trend-select").value;
+            const resultEl = document.getElementById("goal-trend-result");
+
+            if (!team) {
+                resultEl.textContent = "";
+                return;
+            }
+
+            resultEl.textContent = "Loading...";
+            const response = await fetch(`/api/goal-trend?team=${encodeURIComponent(team)}`);
+            const data = await response.json();
+
+            if (data.error) {
+                resultEl.textContent = `Error: ${data.error}`;
+            } else {
+                // showing all three numbers, not just goal_differential —
+                // goals_scored and goals_conceded are independent signals
+                // that a single differential would hide (see goal_trend's
+                // own docstring: a 3-3 team and a 0.5-0.5 team both average
+                // to zero difference but are very different teams)
+                resultEl.textContent =
+                    `${data.team} — scored: ${data.goals_scored}, conceded: ${data.goals_conceded}, differential: ${data.goal_differential}`;
+            }
+        }
+
         // wire up each dropdown's change event, then load the team list
         // as soon as the page itself finishes loading
         document.getElementById("team-select").addEventListener("change", onTeamSelected);
         document.getElementById("h2h-team-a-select").addEventListener("change", onH2hTeamSelected);
         document.getElementById("h2h-team-b-select").addEventListener("change", onH2hTeamSelected);
+        document.getElementById("goal-trend-select").addEventListener("change", onGoalTrendTeamSelected);
 
-        // three separate loadTeams() calls means three separate fetches of
+        // four separate loadTeams() calls means four separate fetches of
         // the same /api/teams payload on every page load, instead of
-        // fetching once and reusing it for all three dropdowns. noticed and
+        // fetching once and reusing it for all four dropdowns. noticed and
         // left as-is deliberately: 311 teams is a tiny, server-cached
         // payload, so the extra round trips cost nothing noticeable here —
         // worth naming in code rather than silently accepting it, so it
@@ -127,6 +162,7 @@
         loadTeams(document.getElementById("team-select"));
         loadTeams(document.getElementById("h2h-team-a-select"));
         loadTeams(document.getElementById("h2h-team-b-select"));
+        loadTeams(document.getElementById("goal-trend-select"));
     </script>
 </body>
 </html>

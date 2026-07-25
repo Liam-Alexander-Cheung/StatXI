@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request
 from flask import render_template
 import pandas as pd
 from src.data_pipeline import load_raw_matches, clean_matches
-from src.features import rolling_form, head_to_head_record
+from src.features import rolling_form, head_to_head_record, goal_trend
 
 app = Flask(__name__)
 
@@ -73,6 +73,31 @@ def api_h2h():
     # if a caller ever stores both this and the rolling-form response
     # together in one object
     return jsonify({"team_a": team_a, "team_b": team_b, "h2h_win_rate": round(win_rate, 3)})
+
+
+@app.route("/api/goal-trend")
+def api_goal_trend():
+    team = request.args.get("team")
+    if not team:
+        return jsonify({"error": "missing 'team' query parameter"}), 400
+
+    matches = get_matches()
+    trend = goal_trend(matches, team, pd.Timestamp.now())
+
+    # goal_trend always returns all three keys, never a bare NaN like
+    # rolling_form/head_to_head_record do — checking goals_scored alone is
+    # enough, since all three come from the same underlying team_matches
+    # filter and go NaN together (goal_differential is NaN - NaN, not a
+    # separately-computed value that could disagree with the other two)
+    if pd.isna(trend["goals_scored"]):
+        return jsonify({"error": f"no recent match data for '{team}'"}), 404
+
+    return jsonify({
+        "team": team,
+        "goals_scored": round(trend["goals_scored"], 3),
+        "goals_conceded": round(trend["goals_conceded"], 3),
+        "goal_differential": round(trend["goal_differential"], 3),
+    })
 
 
 @app.route("/api/teams")
