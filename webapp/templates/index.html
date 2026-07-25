@@ -13,15 +13,31 @@
 
     <p id="result"></p>
 
+    <h1>Head-to-Head Record</h1>
+
+    <select id="h2h-team-a-select">
+        <option value="">Loading teams...</option>
+    </select>
+    <select id="h2h-team-b-select">
+        <option value="">Loading teams...</option>
+    </select>
+
+    <p id="h2h-result"></p>
+
     <script>
         // fetch() makes an HTTP request from JavaScript, same idea as
         // curl, but running inside the browser instead of the terminal
-        async function loadTeams() {
+        //
+        // takes the target <select> as a parameter instead of hardcoding
+        // one element's id, because this page now has three dropdowns
+        // (rolling-form's, plus h2h's team-a and team-b) that all need the
+        // exact same team list — one function, three call sites, instead
+        // of three near-identical copies of the same loop
+        async function loadTeams(selectEl) {
             const response = await fetch("/api/teams");
             const teams = await response.json();
 
-            const select = document.getElementById("team-select");
-            select.innerHTML = '<option value="">-- choose a team --</option>';
+            selectEl.innerHTML = '<option value="">-- choose a team --</option>';
             // build one <option> element per team, matching what the
             // dropdown showed manually in earlier plain-HTML examples,
             // just generated from real data instead of typed by hand
@@ -29,7 +45,7 @@
                 const option = document.createElement("option");
                 option.value = team;
                 option.textContent = team;
-                select.appendChild(option);
+                selectEl.appendChild(option);
             }
         }
 
@@ -53,10 +69,64 @@
             }
         }
 
-        // wire up the dropdown's change event, then load the team list
+        // fires on a change to *either* h2h dropdown (both listeners below
+        // point at this same function) — it just re-reads whichever two
+        // values are currently selected, rather than tracking which one
+        // just changed, since that's simpler and there are only two inputs
+        async function onH2hTeamSelected() {
+            const teamA = document.getElementById("h2h-team-a-select").value;
+            const teamB = document.getElementById("h2h-team-b-select").value;
+            const resultEl = document.getElementById("h2h-result");
+
+            if (!teamA || !teamB) {
+                resultEl.textContent = "";
+                return;
+            }
+
+            // same-team check duplicates the backend's /api/h2h 400 check,
+            // done here too so the user gets an instant message instead of
+            // waiting on a round trip for a mistake the page can already see.
+            // the backend still enforces it independently (never trust the
+            // client to be the only thing standing between a bad request
+            // and the server) — this is purely an early exit for UX
+            if (teamA === teamB) {
+                resultEl.textContent = "Error: choose two different teams";
+                return;
+            }
+
+            resultEl.textContent = "Loading...";
+            const response = await fetch(
+                `/api/h2h?team_a=${encodeURIComponent(teamA)}&team_b=${encodeURIComponent(teamB)}`
+            );
+            const data = await response.json();
+
+            if (data.error) {
+                resultEl.textContent = `Error: ${data.error}`;
+            } else {
+                // data.team_a specifically (not "the first team" generically)
+                // because h2h_win_rate is asymmetric — it's team_a's win rate
+                // against team_b, not a symmetric "how good is this matchup"
+                // number, so the label has to say whose win rate it is
+                resultEl.textContent = `${data.team_a} vs ${data.team_b} — ${data.team_a} win rate: ${data.h2h_win_rate}`;
+            }
+        }
+
+        // wire up each dropdown's change event, then load the team list
         // as soon as the page itself finishes loading
         document.getElementById("team-select").addEventListener("change", onTeamSelected);
-        loadTeams();
+        document.getElementById("h2h-team-a-select").addEventListener("change", onH2hTeamSelected);
+        document.getElementById("h2h-team-b-select").addEventListener("change", onH2hTeamSelected);
+
+        // three separate loadTeams() calls means three separate fetches of
+        // the same /api/teams payload on every page load, instead of
+        // fetching once and reusing it for all three dropdowns. noticed and
+        // left as-is deliberately: 311 teams is a tiny, server-cached
+        // payload, so the extra round trips cost nothing noticeable here —
+        // worth naming in code rather than silently accepting it, so it
+        // reads as a conscious tradeoff and not an oversight if revisited later
+        loadTeams(document.getElementById("team-select"));
+        loadTeams(document.getElementById("h2h-team-a-select"));
+        loadTeams(document.getElementById("h2h-team-b-select"));
     </script>
 </body>
 </html>
