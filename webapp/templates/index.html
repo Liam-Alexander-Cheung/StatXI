@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Euro 2028 Prediction — Rolling Form</title>
+</head>
+<body>
+    <h1>Team Rolling Form</h1>
+
+    <select id="team-select">
+        <option value="">Loading teams...</option>
+    </select>
+
+    <p id="result"></p>
+
+    <script>
+        // fetch() makes an HTTP request from JavaScript, same idea as
+        // curl, but running inside the browser instead of the terminal
+        async function loadTeams() {
+            const response = await fetch("/api/teams");
+            const teams = await response.json();
+
+            const select = document.getElementById("team-select");
+            select.innerHTML = '<option value="">-- choose a team --</option>';
+            // build one <option> element per team, matching what the
+            // dropdown showed manually in earlier plain-HTML examples,
+            // just generated from real data instead of typed by hand
+            for (const team of teams) {
+                const option = document.createElement("option");
+                option.value = team;
+                option.textContent = team;
+                select.appendChild(option);
+            }
+        }
+
+        async function onTeamSelected() {
+            const team = document.getElementById("team-select").value;
+            const resultEl = document.getElementById("result");
+
+            if (!team) {
+                resultEl.textContent = "";
+                return;
+            }
+
+            resultEl.textContent = "Loading...";
+            const response = await fetch(`/api/rolling-form?team=${encodeURIComponent(team)}`);
+            const data = await response.json();
+
+            if (data.error) {
+                resultEl.textContent = `Error: ${data.error}`;
+            } else {
+                resultEl.textContent = `${data.team} rolling form: ${data.rolling_form}`;
+            }
+        }
+
+        // wire up the dropdown's change event, then load the team list
+        // as soon as the page itself finishes loading
+        document.getElementById("team-select").addEventListener("change", onTeamSelected);
+        loadTeams();
+    </script>
+</body>
+</html>

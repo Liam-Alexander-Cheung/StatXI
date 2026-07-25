@@ -1,0 +1,213 @@
+# CLAUDE.md
+
+Guidance for Claude Code when working in this repository.
+
+## What this project is
+
+Jugend forscht 2026/27 entry: a UEFA Euro 2028 match prediction model.
+Repo: github.com/Liam-Alexander-Cheung/euro2028-prediction.
+
+Two prediction targets, deliberately built with two different methods:
+
+- **Win / Draw / Loss** — XGBoost classifier. This is the genuine ML part
+  of the project: it learns nonlinear feature interactions (form × squad
+  quality × tournament stage × home advantage) that can't be hand-specified.
+- **Scoreline** — Poisson simulation (attack/defence strength fitting +
+  Monte Carlo). This is classical statistics, not machine learning — goals
+  are count data, Poisson is the textbook-correct distribution, and there's
+  no shame in that half of the project not being "AI."
+
+The judges' hook is comparing this model's accuracy against (1) a naive
+baseline (always predict the favorite) and (2) bookmaker implied
+probabilities, backtested against real historical tournaments. Using the
+right tool per sub-problem (stats where stats is correct, ML where ML
+earns its place) is the actual argument for methodological rigor — not
+"more AI is more impressive."
+
+**Team:** built by Liam, with a non-technical partner, Tomás, who is
+deliberately kept off this repo (doesn't code). Tomás owns domain
+sanity-checking, literature review, non-technical report sections, poster
+design, manual data verification, and project-management tracking.
+
+**Deadlines that actually matter:**
+- Jugend forscht registration: November 2026
+- Projektbeschreibung (written report) due: January 2027
+- Regionalwettbewerb (judging): February/March 2027
+
+**Important scoping fact, already settled — don't relitigate it:** real
+Euro 2028 squad data won't exist until roughly May 2028 (major tournaments
+announce final squads 3-4 weeks before kickoff), which is over a year
+*after* this project's deadlines. The deliverable is NOT a live Euro 2028
+prediction — that's structurally impossible on this timeline. It's (1)
+backtested accuracy against real past tournaments (Euro 2016/2020/2024,
+World Cup 2022), and (2) a clearly-labeled hypothetical run using
+projected qualification scenarios, not presented as a final prediction.
+
+## Architecture
+
+**Data layer:** SQLite, `data/euro2028.db` (never committed — regenerable,
+see "Practical notes" below). Three areas:
+- `matches` — cleaned historical match results (Kaggle source, 1990+)
+- `former_names` — historical team-rename lookup table
+- `tournaments` → `squads` → `players` — relational squad data scraped
+  from Wikipedia, real foreign keys, 18 tournaments / ~380 squads / 10,058
+  player-tournament rows
+
+**Prediction layer:** XGBoost classifier + Poisson/Monte Carlo simulator,
+both currently stubs (see "What's not done yet").
+
+**Web layer:** Flask backend (`webapp/`) exposing feature data via a
+simple JSON API, consumed by a plain HTML/JS frontend. Built incrementally,
+one feature at a time — see "Frontend plan" below.
+
+## What's built and verified (as of the last working session)
+
+### `src/data_pipeline.py`
+- `load_raw_matches`, `load_former_names` — query SQLite (migrated from
+  CSV; migration verified byte-identical against the pre-migration
+  pipeline before being trusted)
+- `clean_matches` — applies the 1990 cutoff (`CUTOFF_YEAR`), drops
+  unplayed/future fixtures (`NaN` scores), team-name normalization
+  (currently inert against this specific Kaggle source — it already
+  pre-normalizes — but retained defensively for future data sources; see
+  methodology), excludes CONIFA (non-FIFA) matches
+- Match weighting: `importance_weight` (tournament-tier lookup, built from
+  the dataset's actual 149 distinct tournament values, not guessed),
+  `recency_weight` (exponential decay, floored at `min_weight=0.05` so
+  matches near the 1990 cutoff aren't crushed to near-zero), combined in
+  `add_match_weights`
+- `fetch_market_value_history`, `search_player_id` — Transfermarkt
+  scraping via its internal, undocumented `ceapi` and `schnellsuche`
+  endpoints (reverse-engineered via browser dev tools — see methodology
+  for the ToS gray-zone decision and mitigations)
+
+### `src/features.py`
+- `rolling_form` — weighted win rate, trailing 10-year window
+- `head_to_head_record` — weighted win rate between two specific teams,
+  full history (no fixed window — meetings are often too sparse for a
+  10-year cutoff to be meaningful)
+- `goal_trend` — weighted goals scored / conceded / differential, trailing
+  10-year window
+- `transfer_value_delta_z` — returns **raw** market values at two points
+  in time, deliberately NOT z-scored inside the function; z-scoring
+  belongs at the squad-cohort level, done by the caller
+
+All four are tested against real, checkable football knowledge (Germany
+vs. San Marino, Argentina vs. Brazil, Kimmich vs. Musiala market-value
+trajectories) — not just "the code runs."
+
+### `src/database.py` + schema
+- `get_connection()` — SQLite connection helper
+- Relational schema: `tournaments` (18 rows) → `squads` (~380 rows) →
+  `players` (10,058 rows), real `FOREIGN KEY` constraints
+- **`PRAGMA foreign_keys = ON` must be set explicitly per connection** —
+  SQLite does not enforce foreign keys by default
+- `players.transfermarkt_player_id` column exists but is `NULL` for every
+  row — the name-matching/disambiguation work below hasn't happened yet
+
+### `webapp/`
+- Flask backend: `/api/teams`, `/api/rolling-form`
+- Match data is cached and **warmed at server startup**, not lazily on
+  first request — the full clean/normalize pipeline takes ~14s, and a
+  live user should never be the one who pays that cost
+- `templates/index.html` — a team dropdown, dynamically populated from
+  the real 311-team dataset (not hardcoded — that was a deliberate choice
+  after checking the actual count), wired to the API via `fetch()`
+
+## What's NOT done yet
+
+1. **`u21_weighted_minutes_z`** — second prodigy z-score. Needs
+   minutes-played data weighted by opponent strength. Not started.
+2. **`per90_vs_cohort_z`** — third prodigy z-score. Needs StatsBomb
+   per-90 stats. Coverage gaps across leagues/seasons are a known,
+   undocumented risk — audit before building on it.
+3. **Squad age & depth score** — planned in the original architecture,
+   never built. Age data already exists in the `players` table.
+4. **Tournament stage weighting** (group vs. knockout) — distinct from
+   the competition-*type* importance tiers already built. Not built.
+5. **Transfermarkt ↔ Wikipedia player linking** — `search_player_id`
+   works and is proven to surface real ambiguity (a "Silva" search
+   returns 8 distinct real players), but nothing yet cross-references a
+   search result's club/nationality against what Wikipedia already
+   provided to auto-resolve matches with confidence. Until this exists,
+   don't assume a name match is correct without a human checking it.
+6. **XGBoost classifier** — stub only. No training, tuning, or
+   validation yet. This and the next two items are the single biggest
+   remaining chunk of work.
+7. **Poisson simulation** — stub only. Needs real attack/defence
+   parameter fitting. Open design question, deliberately deferred: whether
+   to add a squad-quality covariate via Poisson regression
+   (`λ = exp(base + attack - defence + β·prodigy_score)`) — don't build
+   this until a backtest shows `goal_trend` doesn't already capture the
+   same signal implicitly.
+8. **Monte Carlo tournament simulator** — not built at all.
+9. **Backtesting** — against Euro 2016/2020/2024 and World Cup 2022,
+   benchmarked against baseline and bookmaker odds. Blocked until 6-8
+   exist.
+10. **Frontend beyond rolling form** — plan is one simple feature at a
+    time (goal trend, h2h, etc.), then an "AI insight" section at the
+    bottom once real model predictions exist to show. Don't build the AI
+    section with fabricated numbers in the meantime.
+11. **Projektbeschreibung** — the actual 10-15 page written report, due
+    January 2027. `reports/methodology.md` is real material for this, not
+    a substitute for it.
+12. **Poster & presentation** — Tomás's domain, blocked on real backtest
+    results existing.
+13. **Jugend forscht registration** — due November 2026. Just a form, but
+    a real hard date.
+
+## How to write code for this project
+
+- **One step at a time.** Build one function, explain it, verify it
+  against a real, checkable test case, then move to the next. Don't
+  generate a wholesale finished module in one pass.
+- **Explain every new concept as it's introduced** — a new library, a
+  new Python idiom, a new SQL/regex concept — as if the reader is
+  learning it, not just approving it.
+- **Add inline code comments proactively.** Don't rely on chat-external
+  explanation alone; comments should live with the code they explain.
+- **Verify, don't assume.** Re-run known test cases after any refactor
+  (e.g. the Germany/San Marino `rolling_form` sanity check) instead of
+  trusting that a diff "looks right." Multiple real regressions in this
+  project were only caught this way — including a script that silently
+  deleted a function, and one that destroyed its own source table
+  mid-run.
+- **Never fabricate data.** Missing data returns `None`/`NaN` explicitly,
+  never a guessed placeholder. Applies to unplayed matches, missing squad
+  data, missing market values — everywhere.
+- **When something breaks, read the actual error, don't paraphrase it.**
+  Check the real state of a file/database/variable directly (`cat`,
+  `grep`, a `SELECT`) rather than assuming based on what should be true —
+  several real bugs this project hit only became findable this way (an
+  accidentally-emptied CSV, an unsaved file, a stale server process).
+- **Prefer concrete, numeric answers over vague reassurance.** Push back
+  immediately on an incorrect assumption rather than deferring to it.
+- **Document real dead ends, bugs, and findings in
+  `reports/methodology.md`** as they happen. This project's write-up
+  leans on an honest account of the actual engineering process — what
+  broke, why, what was learned — not a highlights reel where nothing
+  ever went wrong.
+
+## Practical notes
+
+- Python 3.9, venv at `./venv` — activate with `source venv/bin/activate`
+  before running anything.
+- **Never commit derived/regenerable data**: `data/euro2028.db`,
+  `squads_flat_backup.csv`, and everything under `data/raw/` are
+  gitignored on purpose. Rebuild via `migrate_to_db.py`,
+  `scrape_all_squads.py`, and `build_squad_schema.py` — don't try to
+  restore these from git history, they were never there.
+- **Branch structure:** `main` (stable — data pipeline only) →
+  `features` (in-progress feature engineering + squad schema work) →
+  `webapp` (branched from `features`, since it imports functions that
+  only exist there — needs periodic `git merge features` to avoid
+  drifting stale).
+- macOS, VS Code integrated terminal. The author is actively learning
+  git, Python, and SQL through this project — prefers being walked
+  through what a command does and why before running it, not having
+  things run autonomously without explanation.
+- `reports/methodology.md` is the single most useful file to read before
+  touching related code — it contains the actual reasoning behind
+  non-obvious decisions (why 1990 as a cutoff, why squad features are
+  tournament-scoped, why the prodigy composite feeds XGBoost as three
+  separate z-scores instead of one hand-weighted number, and more).

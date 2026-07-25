@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from flask import render_template
 import pandas as pd
 from src.data_pipeline import load_raw_matches, clean_matches
 from src.features import rolling_form
@@ -18,10 +19,6 @@ def get_matches():
 # warm the cache immediately at startup, not on the first request —
 # otherwise whichever user happens to click first eats a ~14s delay
 get_matches()
-
-@app.route("/")
-def hello():
-    return "Flask is running"
 
 
 @app.route("/api/rolling-form")
@@ -44,6 +41,11 @@ def api_teams():
     matches = get_matches()
     teams = sorted(set(matches["home_team"]) | set(matches["away_team"]))
     return jsonify(teams)
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
 
 
 if __name__ == "__main__":
