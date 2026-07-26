@@ -323,3 +323,62 @@ runs":**
 - Error paths — missing query parameter, an unknown/never-met team, and
   identical `team_a`/`team_b` each independently confirmed to return the
   correct 400/404 and error message, never a silently fabricated number.
+
+## Squad age & depth score
+
+The first squad-level feature (as opposed to the match-level trio above).
+"Depth" was never actually defined anywhere before this — `claude.md` and
+this file both only ever mentioned it in passing (see "Squad-based feature
+scoping" above) without saying what it measures. Checked the `players`
+table directly before deciding: the `position` column turned out to only
+have 4 distinct values across all 10,038 rows (`GK`, `DF`, `MF`, `FW`, no
+NULLs, no free-text mess), which made a literal definition of depth —
+how many players cover each position — both the most football-accurate
+reading of the word and the cheapest to build, so that's what was built,
+rather than a proxy like squad size or total caps.
+
+**Design decision: return counts *and* proportions, not one or the
+other.** Counts are directly meaningful ("Germany had 9 defenders").
+Proportions (count ÷ squad size) are what's actually comparable across
+squads, since official squad size isn't fixed — it's varied 23-26 players
+depending on the tournament's own rules in a given year, so two squads
+with equal defender *counts* can still differ in what share of the squad
+that represents.
+
+**Design decision: squad-scoped, not date-scoped.** Unlike `rolling_form`/
+`goal_trend` (which filter matches by an `as_of_date`), a tournament squad
+is a single fixed list — there's no "as of" question to ask about it — so
+`squad_age_depth(squads, team, tournament_name)` takes a tournament name
+directly instead of a date.
+
+**Missing-squad handling:** if `team`/`tournament_name` doesn't match any
+row (wrong name, or a team that simply didn't qualify for that
+tournament), position counts are correctly `0` — that's a true fact about
+an empty result, not a fabrication — but `mean_age` and the proportions
+are `NaN`, since "0 out of 0" is undefined, not a guessed `0.0`. Confirmed
+against a real case: San Marino has never qualified for a Euro, so
+`squad_age_depth(squads, "San Marino", "Euro 2024")` correctly returns all
+`NaN`/`0` rather than silently succeeding with garbage.
+
+**New data-loading pattern:** added `load_squads()` to `data_pipeline.py`,
+joining `players` → `squads` → `tournaments` into one flat DataFrame — the
+same shape as `load_raw_matches`, so `squad_age_depth` filters a DataFrame
+the same way `rolling_form` etc. filter `matches`, rather than each
+squad-level feature writing its own SQL join.
+
+**Verification**, against two real squads with known, checkable rosters:
+- Germany, Euro 2024: mean age 28.538, squad size 26, GK 3 / DF 9 / MF 9 /
+  FW 5 — cross-checked against a direct SQL `GROUP BY position` query
+  before trusting the function, exact match.
+- France, World Cup 2022 (the squad that reached the final): mean age
+  26.538, GK 3 / DF 9 / MF 6 / FW 8 — a forward-heavy squad, consistent
+  with that squad's actual makeup (Mbappé, Giroud, Griezmann, Dembélé
+  among the front players).
+
+**Web layer:** exposed the same way as the other three features —
+`/api/squad-age-depth?team=...&tournament=...`, plus a new
+`/api/tournaments` endpoint (mirrors `/api/teams`) so the frontend can
+populate a tournament dropdown alongside the team one. Squad data is
+cached and warmed at startup the same way match data is (`get_squads()`
+alongside the existing `get_matches()`), for the same reason: nobody
+should pay a load-time cost on their own first click.

@@ -1,12 +1,13 @@
 from flask import Flask, jsonify, request
 from flask import render_template
 import pandas as pd
-from src.data_pipeline import load_raw_matches, clean_matches
-from src.features import rolling_form, head_to_head_record, goal_trend
+from src.data_pipeline import load_raw_matches, clean_matches, load_squads
+from src.features import rolling_form, head_to_head_record, goal_trend, squad_age_depth
 
 app = Flask(__name__)
 
 _matches_cache = None
+_squads_cache = None
 
 
 def get_matches():
@@ -16,9 +17,17 @@ def get_matches():
         _matches_cache = clean_matches(df)
     return _matches_cache
 
-# warm the cache immediately at startup, not on the first request —
-# otherwise whichever user happens to click first eats a ~14s delay
+
+def get_squads():
+    global _squads_cache
+    if _squads_cache is None:
+        _squads_cache = load_squads()
+    return _squads_cache
+
+# warm both caches immediately at startup, not on the first request —
+# otherwise whichever user happens to click first eats the load delay
 get_matches()
+get_squads()
 
 
 @app.route("/api/rolling-form")
@@ -100,11 +109,38 @@ def api_goal_trend():
     })
 
 
+@app.route("/api/squad-age-depth")
+def api_squad_age_depth():
+    team = request.args.get("team")
+    tournament = request.args.get("tournament")
+    if not team or not tournament:
+        return jsonify({"error": "missing 'team' or 'tournament' query parameter"}), 400
+
+    squads = get_squads()
+    result = squad_age_depth(squads, team, tournament)
+
+    # mean_age is the one always-NaN-together field when no squad matches
+    # (same reasoning as goal_trend's goals_scored check above) — squad_size
+    # would also work as the check, but mean_age matches the pattern used
+    # by the other single-value endpoints (rolling_form, h2h) most closely
+    if pd.isna(result["mean_age"]):
+        return jsonify({"error": f"no squad data for '{team}' at '{tournament}'"}), 404
+
+    return jsonify({"team": team, "tournament": tournament, **result})
+
+
 @app.route("/api/teams")
 def api_teams():
     matches = get_matches()
     teams = sorted(set(matches["home_team"]) | set(matches["away_team"]))
     return jsonify(teams)
+
+
+@app.route("/api/tournaments")
+def api_tournaments():
+    squads = get_squads()
+    tournaments = sorted(set(squads["tournament_name"]))
+    return jsonify(tournaments)
 
 
 @app.route("/")

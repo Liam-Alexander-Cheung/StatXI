@@ -40,6 +40,31 @@ def load_former_names() -> pd.DataFrame:
     df["end_date"] = pd.to_datetime(df["end_date"])
     return df
 
+
+def load_squads() -> pd.DataFrame:
+    """
+    Load one row per player-tournament appearance, joined across the
+    players/squads/tournaments tables into a single flat DataFrame — same
+    shape as load_raw_matches: squad-level feature functions filter this
+    DataFrame themselves rather than each writing their own SQL join.
+    """
+    conn = get_connection()
+    df = pd.read_sql(
+        """
+        SELECT
+            s.country AS team,
+            t.name AS tournament_name,
+            p.position,
+            p.age_at_tournament
+        FROM players p
+        JOIN squads s ON p.squad_id = s.squad_id
+        JOIN tournaments t ON s.tournament_id = t.tournament_id
+        """,
+        conn,
+    )
+    conn.close()
+    return df
+
 def resolve_team_name(name: str, date: pd.Timestamp, former_names: pd.DataFrame) -> str:
     """
     Given a team name and a match date, return the *current* name if the

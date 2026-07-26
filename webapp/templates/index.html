@@ -6,6 +6,7 @@
 </head>
 <body>
     <h1>Team Rolling Form</h1>
+    <p class="feature-desc">Weighted win rate over a team's last 10 years of matches, weighted by recency and tournament importance.</p>
 
     <select id="team-select">
         <option value="">Loading teams...</option>
@@ -14,6 +15,7 @@
     <p id="result"></p>
 
     <h1>Head-to-Head Record</h1>
+    <p class="feature-desc">Weighted win rate for one team against another, across their full shared match history.</p>
 
     <select id="h2h-team-a-select">
         <option value="">Loading teams...</option>
@@ -25,12 +27,25 @@
     <p id="h2h-result"></p>
 
     <h1>Goal Trend</h1>
+    <p class="feature-desc">Weighted average goals scored, conceded, and differential over a team's last 10 years of matches.</p>
 
     <select id="goal-trend-select">
         <option value="">Loading teams...</option>
     </select>
 
     <p id="goal-trend-result"></p>
+
+    <h1>Squad Age &amp; Depth</h1>
+    <p class="feature-desc">Mean squad age and player counts/proportions per position (GK/DF/MF/FW) for a team's squad at one specific tournament.</p>
+
+    <select id="squad-team-select">
+        <option value="">Loading teams...</option>
+    </select>
+    <select id="squad-tournament-select">
+        <option value="">Loading tournaments...</option>
+    </select>
+
+    <p id="squad-result"></p>
 
     <script>
         // fetch() makes an HTTP request from JavaScript, same idea as
@@ -53,6 +68,22 @@
                 const option = document.createElement("option");
                 option.value = team;
                 option.textContent = team;
+                selectEl.appendChild(option);
+            }
+        }
+
+        // separate from loadTeams because it hits a different endpoint
+        // (/api/tournaments, not /api/teams) — same shape of loop though,
+        // so this is effectively loadTeams' sibling rather than a reuse of it
+        async function loadTournaments(selectEl) {
+            const response = await fetch("/api/tournaments");
+            const tournaments = await response.json();
+
+            selectEl.innerHTML = '<option value="">-- choose a tournament --</option>';
+            for (const tournament of tournaments) {
+                const option = document.createElement("option");
+                option.value = tournament;
+                option.textContent = tournament;
                 selectEl.appendChild(option);
             }
         }
@@ -145,16 +176,55 @@
             }
         }
 
-        // wire up each dropdown's change event, then load the team list
-        // as soon as the page itself finishes loading
+        // fires on a change to *either* squad dropdown (team or tournament),
+        // same reasoning as onH2hTeamSelected — re-read both current values
+        // rather than track which one changed
+        async function onSquadSelected() {
+            const team = document.getElementById("squad-team-select").value;
+            const tournament = document.getElementById("squad-tournament-select").value;
+            const resultEl = document.getElementById("squad-result");
+
+            if (!team || !tournament) {
+                resultEl.textContent = "";
+                return;
+            }
+
+            resultEl.textContent = "Loading...";
+            const response = await fetch(
+                `/api/squad-age-depth?team=${encodeURIComponent(team)}&tournament=${encodeURIComponent(tournament)}`
+            );
+            const data = await response.json();
+
+            if (data.error) {
+                resultEl.textContent = `Error: ${data.error}`;
+            } else {
+                const c = data.position_counts;
+                const p = data.position_proportions;
+                // counts and proportions shown together (e.g. "9 (34.6%)")
+                // rather than picking one — see squad_age_depth's own
+                // docstring: counts are directly meaningful, proportions are
+                // what's actually comparable across squads of different size
+                resultEl.textContent =
+                    `${data.team} @ ${data.tournament} — mean age: ${data.mean_age}, squad size: ${data.squad_size} | ` +
+                    `GK: ${c.GK} (${(p.GK * 100).toFixed(1)}%), ` +
+                    `DF: ${c.DF} (${(p.DF * 100).toFixed(1)}%), ` +
+                    `MF: ${c.MF} (${(p.MF * 100).toFixed(1)}%), ` +
+                    `FW: ${c.FW} (${(p.FW * 100).toFixed(1)}%)`;
+            }
+        }
+
+        // wire up each dropdown's change event, then load the team/tournament
+        // lists as soon as the page itself finishes loading
         document.getElementById("team-select").addEventListener("change", onTeamSelected);
         document.getElementById("h2h-team-a-select").addEventListener("change", onH2hTeamSelected);
         document.getElementById("h2h-team-b-select").addEventListener("change", onH2hTeamSelected);
         document.getElementById("goal-trend-select").addEventListener("change", onGoalTrendTeamSelected);
+        document.getElementById("squad-team-select").addEventListener("change", onSquadSelected);
+        document.getElementById("squad-tournament-select").addEventListener("change", onSquadSelected);
 
-        // four separate loadTeams() calls means four separate fetches of
+        // five separate loadTeams() calls means five separate fetches of
         // the same /api/teams payload on every page load, instead of
-        // fetching once and reusing it for all four dropdowns. noticed and
+        // fetching once and reusing it for all five dropdowns. noticed and
         // left as-is deliberately: 311 teams is a tiny, server-cached
         // payload, so the extra round trips cost nothing noticeable here —
         // worth naming in code rather than silently accepting it, so it
@@ -163,6 +233,8 @@
         loadTeams(document.getElementById("h2h-team-a-select"));
         loadTeams(document.getElementById("h2h-team-b-select"));
         loadTeams(document.getElementById("goal-trend-select"));
+        loadTeams(document.getElementById("squad-team-select"));
+        loadTournaments(document.getElementById("squad-tournament-select"));
     </script>
 </body>
 </html>

@@ -167,6 +167,65 @@ def goal_trend(
     }
 
 
+# only 4 distinct position values exist in the whole players table (GK, DF,
+# MF, FW) — checked directly against the database before relying on this,
+# rather than assuming the scraped data was this clean
+_POSITIONS = ["GK", "DF", "MF", "FW"]
+
+
+def squad_age_depth(squads: pd.DataFrame, team: str, tournament_name: str) -> dict:
+    """
+    Age and positional-depth profile for `team`'s squad at one specific
+    tournament. Squad-scoped, not date-scoped like the match-level features
+    above — a tournament squad is a single fixed list, not something to
+    filter "as of" a date.
+
+    Returns mean age, squad size, and player counts *and* proportions per
+    position. Both, not just one: counts are directly meaningful ("9
+    defenders"), but proportions are what's actually comparable across
+    squads, since official squad size varies (23-26 players depending on
+    the tournament's own rules that year) — two squads with equal counts
+    at a position can still differ in what share of the squad that is.
+
+    Returns NaN-populated placeholders if `team`/`tournament_name` doesn't
+    match any squad (typo, or a team that didn't compete). Position counts
+    are correctly 0 in that case — that's a true fact about an empty
+    result, not a fabrication — but proportions are NaN rather than a
+    guessed 0.0, since "0 out of 0" is undefined, not zero.
+    """
+    squad = squads[
+        (squads["team"] == team) & (squads["tournament_name"] == tournament_name)
+    ]
+
+    if len(squad) == 0:
+        return {
+            "mean_age": float("nan"),
+            "squad_size": 0,
+            "position_counts": {pos: 0 for pos in _POSITIONS},
+            "position_proportions": {pos: float("nan") for pos in _POSITIONS},
+        }
+
+    squad_size = len(squad)
+
+    # reindex against the known 4 positions (not just whatever positions
+    # happen to appear in this particular squad) so every squad's dict has
+    # the same 4 keys, even if e.g. a squad were missing an FW entirely
+    counts = squad["position"].value_counts().reindex(_POSITIONS, fill_value=0)
+    # cast numpy int64 -> plain int so this serializes cleanly to JSON
+    # later without a custom encoder, same reasoning as elsewhere in this file
+    position_counts = {pos: int(count) for pos, count in counts.items()}
+    position_proportions = {
+        pos: round(count / squad_size, 3) for pos, count in position_counts.items()
+    }
+
+    return {
+        "mean_age": round(squad["age_at_tournament"].mean(), 3),
+        "squad_size": squad_size,
+        "position_counts": position_counts,
+        "position_proportions": position_proportions,
+    }
+
+
 
 from datetime import datetime
 
