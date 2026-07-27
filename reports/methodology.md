@@ -404,3 +404,120 @@ populate a tournament dropdown alongside the team one. Squad data is
 cached and warmed at startup the same way match data is (`get_squads()`
 alongside the existing `get_matches()`), for the same reason: nobody
 should pay a load-time cost on their own first click.
+
+## XGBoost Win/Draw/Loss classifier (v1)
+
+The genuine ML half of the project: a gradient-boosted tree classifier that
+outputs a probability over three outcomes (Home win / Draw / Away win) per
+fixture. Built in three verified stages under `src/models/`: `build_matrix.py`
+(assemble the training table), `train_wdl.py` (temporal split + fit),
+`evaluate_wdl.py` (score against baselines).
+
+### Target reset (the single most important decision in this section)
+The originally-stated goals — ~90% winner accuracy and ~50% exact scoreline —
+were re-scoped *before* any code was written, because neither is attainable and
+carrying them into the report would actively damage its credibility:
+
+- The best public models and bookmakers reach roughly **52–58%** top-1 accuracy
+  on 3-way football, and **~10–12%** on exact scoreline. Football is
+  low-scoring and high-variance — that is *why* upsets happen, and it caps how
+  well any model can do.
+- A WDL model reporting ~90% accuracy is, in almost every real case, a
+  **data-leakage bug**, not a good model. An informed judge would (correctly)
+  distrust the number on sight. So a high accuracy figure is treated in this
+  project as a red flag to investigate, not a result to celebrate.
+- "Expect the unexpected" (catching a Cape Verde-type upset) *contradicts*
+  maximising accuracy — upsets are low-probability by definition. Its correct
+  technical form is **calibrated probability**: a model that says "underdog
+  22%" and is right 22% of the time. That is evaluated with **log-loss / Brier
+  / calibration error**, not top-1 accuracy.
+
+**Agreed success criterion:** beat a no-skill baseline on accuracy *and*
+log-loss, and be well-calibrated. Not raw accuracy.
+
+### Design decisions
+- **Match-level features only, in v1** (available for all 32,140 cleaned
+  matches): home & away `rolling_form`, `goal_trend` (goals scored/conceded per
+  side), `head_to_head_record`, the `neutral`-venue flag, and the match's
+  tournament `importance_weight`. Squad features exist only for 18 tournaments
+  (NaN for ~99% of matches) and are deferred to v2 — a deliberate one-step-at-
+  a-time choice, later *validated* by the tournament-level result below.
+- **`neutral` is a first-class feature.** 48.5% of all matches are home wins,
+  but 28% are neutral-venue where "home/away" is only listing order. Tournaments
+  are largely neutral, so without this flag the model would export a home-bias
+  learned from friendlies into exactly the setting we backtest.
+- **A single explicit `FEATURE_COLUMNS` list is the leakage guard.** The
+  training matrix keeps `home_score`/`away_score` for traceability, but the
+  model is fed features by that name list *only* — never "all columns except
+  the label" — so the raw scores (which *are* the answer) can never be fed in by
+  accident. Verified on a sample: a built row's `home_form` equals an
+  independent standalone `rolling_form` call to 6 decimals.
+- **Temporal split, never random k-fold.** train `< 2014-01-01`; validation
+  `2014–2016` (early-stopping only); test `2016+`. The 2016 boundary puts the
+  tournaments we want to backtest (Euro 2016/2020/2024, WC 2018/2022) entirely
+  in the held-out block. A random split would let the model learn from matches
+  that happened *after* those it is scored on — the classic manufactured-90%
+  failure mode.
+- **Native NaN handling, no imputation.** XGBoost learns a per-split default
+  direction for missing values, so debutant nations (Cape Verde →
+  `rolling_form` returns NaN) are handled directly, honouring the project's
+  never-fabricate-data rule. 152–167 matches have NaN form (first appearances);
+  6,805 pairings have NaN h2h (never met).
+- **Two distinct weightings, kept separate:** recency×importance *inside* the
+  feature functions (part of the feature value); and `sample_weight` in `.fit()`
+  (how much each training match counts — recency to the test boundary ×
+  tournament importance, 10-year half-life).
+
+### Results (held-out, 2016+)
+Early stopping fitted 96 trees (of a 600 cap) — it stopped adding trees once
+validation log-loss plateaued, the intended anti-overfitting behaviour.
+
+*All test matches (n=9,904):* accuracy 0.579 (vs form-favourite 0.557,
+always-home 0.477); log-loss 0.909 (vs no-skill base-rate 1.052); Brier 0.536
+(vs 0.634); **calibration ECE 0.024** for P(home win). The model beats every
+baseline on both accuracy and log-loss and is well-calibrated. 0.579 sits in
+the believable 52–58% band — reassuring precisely *because* it is not 90%.
+
+*Major tournaments only (World Cup + Euro, n=366) — the honest headline:*
+accuracy 0.492 vs the naive form-favourite's **0.495** — a tie/slight loss;
+log-loss 1.026 vs 1.088 — only a modest edge. **At the tournament level, where
+teams are evenly matched on neutral ground, v1's match-level features add little
+over "pick the higher-form team."** This is not hidden — it is the empirical
+motivation for v2 (squad-quality features), and a far stronger scientific story
+than an inflated number: *the model works broadly and is well-calibrated, but
+the specific thing we claim (tournament prediction) needs the squad signal it
+does not yet have.*
+
+*Draw problem, stated plainly:* the model's argmax is "draw" only 0.2% of the
+time (recall ≈ 0), despite ~24% of games drawing. This is inherent to argmax on
+a class that is rarely the single most-likely outcome — not a bug. It is the
+clearest demonstration that **accuracy is the wrong headline metric**: the model
+assigns honest probability to draws (its log-loss and calibration are good), it
+just never makes a draw its top pick.
+
+*Upset behaviour:* on matches the form-favourite got wrong, the model still
+assigned a mean 0.28 probability to what actually happened (vs 0.60 on
+non-upsets) — real, non-trivial mass on the unexpected, which is the calibrated
+form of "expect the unexpected."
+
+### Next (deferred from v1)
+Squad-quality features (v2, motivated directly by the tournament-level tie);
+walk-forward retraining before each backtest tournament (removes the pre-2014
+staleness the single cutoff imposes); tournament-stage weighting (group vs
+knockout); and a bookmaker-odds benchmark once an odds source exists.
+
+## Environment: XGBoost needs OpenMP (libomp) on macOS
+
+`import xgboost` failed outright on this machine with
+`Library not loaded: @rpath/libomp.dylib`. XGBoost parallelises the split-search
+*within* each tree using OpenMP, so its compiled core (`libxgboost.dylib`) is
+dynamically linked against the OpenMP runtime `libomp.dylib`. On Linux the GCC
+toolchain ships one; Apple's Clang deliberately does not, and XGBoost's prebuilt
+macOS wheel expects `libomp` to already exist on the system (it even hard-codes
+`/opt/homebrew/opt/libomp/lib/`) rather than bundling it. Fixed with
+`brew install libomp` (keg-only, ~1.8 MB); the smoke test — import, fit a
+3-class model, `predict_proba` summing to 1 — passed immediately afterward.
+Caught *before* it wasted the ~10-minute matrix build, by running a synthetic
+XGBoost smoke test first rather than assuming the library worked. Worth
+remembering: the failure message names OpenMP, not XGBoost, so it reads like an
+unrelated system problem.
