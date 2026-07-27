@@ -56,8 +56,30 @@ Market value history is sourced from Transfermarkt's internal, undocumented
 API. This is a documented, conscious ToS gray-zone decision: Transfermarkt's
 terms technically restrict automated access; the practical risk for a
 non-commercial student research project pulling publicly visible data is low,
-but not zero. Mitigations: requests are rate-limited, and every fetched page
-is cached locally to avoid redundant re-scraping.
+but not zero.
+
+**Correction (caught during a later session, not fixed yet):** this section
+previously claimed "every fetched page is cached locally to avoid redundant
+re-scraping" as a mitigation. That was aspirational, not real — there is no
+caching code anywhere in the repo; `search_player_id` and
+`fetch_market_value_history` both call `requests.get()` directly, every time.
+Leaving the incorrect claim in place would have been worse than flagging it:
+this file is meant to be an honest account of the actual engineering process,
+not a highlights reel. Actually building the cache is worth doing regardless
+of the block below, since it would reduce redundant load on Transfermarkt
+either way.
+
+**Finding: Transfermarkt is currently blocking all requests from this
+environment.** Checked directly (not assumed) on 2026-07-27: `search_player_id`,
+`fetch_market_value_history`, and even a plain profile-page GET all returned
+`HTTP 202` with an empty body and header `x-amzn-waf-action: challenge` —
+AWS WAF (Transfermarkt's bot-protection layer) actively challenging every
+request, not a bug in this project's code. This blocks both the planned
+Transfermarkt↔Wikipedia player-linking work and any further
+`transfer_value_delta_z` calls until it clears — unknown whether this is
+IP-based, time-based, or a permanent tightening of their bot defenses; needs
+re-checking before resuming that work, ideally from a different network as a
+first diagnostic step.
 
 ## Name-matching risk (Transfermarkt search)
 
