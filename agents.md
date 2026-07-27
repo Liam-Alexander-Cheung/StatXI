@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENTS.md
 
 Guidance for Claude Code when working in this repository.
 
@@ -50,7 +50,7 @@ see "Practical notes" below). Three areas:
 - `matches` — cleaned historical match results (Kaggle source, 1990+)
 - `former_names` — historical team-rename lookup table
 - `tournaments` → `squads` → `players` — relational squad data scraped
-  from Wikipedia, real foreign keys, 18 tournaments / ~380 squads / 10,058
+  from Wikipedia, real foreign keys, 18 tournaments / ~380 squads / 10,038
   player-tournament rows
 
 **Prediction layer:** XGBoost classifier + Poisson/Monte Carlo simulator,
@@ -58,7 +58,8 @@ both currently stubs (see "What's not done yet").
 
 **Web layer:** Flask backend (`webapp/`) exposing feature data via a
 simple JSON API, consumed by a plain HTML/JS frontend. Built incrementally,
-one feature at a time — see "Frontend plan" below.
+one feature at a time — four features live now (rolling form, h2h, goal
+trend, squad age/depth), see "What's built and verified" below.
 
 ## What's built and verified (as of the last working session)
 
@@ -66,6 +67,8 @@ one feature at a time — see "Frontend plan" below.
 - `load_raw_matches`, `load_former_names` — query SQLite (migrated from
   CSV; migration verified byte-identical against the pre-migration
   pipeline before being trusted)
+- `load_squads` — joins `players` → `squads` → `tournaments` into one flat
+  DataFrame, same shape/pattern as `load_raw_matches`
 - `clean_matches` — applies the 1990 cutoff (`CUTOFF_YEAR`), drops
   unplayed/future fixtures (`NaN` scores), team-name normalization
   (currently inert against this specific Kaggle source — it already
@@ -79,7 +82,10 @@ one feature at a time — see "Frontend plan" below.
 - `fetch_market_value_history`, `search_player_id` — Transfermarkt
   scraping via its internal, undocumented `ceapi` and `schnellsuche`
   endpoints (reverse-engineered via browser dev tools — see methodology
-  for the ToS gray-zone decision and mitigations)
+  for the ToS gray-zone decision). **Currently blocked**: as of
+  2026-07-27, Transfermarkt's WAF challenges every request from this
+  environment (search, market-value, and plain profile-page fetches all
+  return an empty `202` — see methodology before assuming these work)
 
 ### `src/features.py`
 - `rolling_form` — weighted win rate, trailing 10-year window
@@ -88,31 +94,42 @@ one feature at a time — see "Frontend plan" below.
   10-year cutoff to be meaningful)
 - `goal_trend` — weighted goals scored / conceded / differential, trailing
   10-year window
+- `squad_age_depth` — mean age plus per-position (GK/DF/MF/FW) player
+  counts and proportions for a team's squad at one tournament — squad-
+  scoped, not date-scoped like the three above, since a tournament squad
+  is a single fixed list
 - `transfer_value_delta_z` — returns **raw** market values at two points
   in time, deliberately NOT z-scored inside the function; z-scoring
   belongs at the squad-cohort level, done by the caller
 
-All four are tested against real, checkable football knowledge (Germany
+All five are tested against real, checkable football knowledge (Germany
 vs. San Marino, Argentina vs. Brazil, Kimmich vs. Musiala market-value
-trajectories) — not just "the code runs."
+trajectories, Germany's and France's actual tournament squads) — not
+just "the code runs."
 
 ### `src/database.py` + schema
 - `get_connection()` — SQLite connection helper
 - Relational schema: `tournaments` (18 rows) → `squads` (~380 rows) →
-  `players` (10,058 rows), real `FOREIGN KEY` constraints
+  `players` (10,038 rows), real `FOREIGN KEY` constraints
 - **`PRAGMA foreign_keys = ON` must be set explicitly per connection** —
   SQLite does not enforce foreign keys by default
 - `players.transfermarkt_player_id` column exists but is `NULL` for every
   row — the name-matching/disambiguation work below hasn't happened yet
 
 ### `webapp/`
-- Flask backend: `/api/teams`, `/api/rolling-form`
-- Match data is cached and **warmed at server startup**, not lazily on
-  first request — the full clean/normalize pipeline takes ~14s, and a
-  live user should never be the one who pays that cost
-- `templates/index.html` — a team dropdown, dynamically populated from
-  the real 311-team dataset (not hardcoded — that was a deliberate choice
-  after checking the actual count), wired to the API via `fetch()`
+- Flask backend: `/api/teams`, `/api/tournaments`, `/api/rolling-form`,
+  `/api/h2h`, `/api/goal-trend`, `/api/squad-age-depth`
+- Both match data and squad data are cached and **warmed at server
+  startup**, not lazily on first request — the full clean/normalize
+  pipeline takes ~14s, and a live user should never be the one who pays
+  that cost
+- `templates/index.html` — four features live: rolling form, head-to-head
+  record, goal trend, squad age/depth. Each has its own dropdown(s), a
+  one-line description of what it computes, and a result area, all
+  dynamically populated from the real dataset (not hardcoded) and wired
+  to the API via `fetch()`. No new model logic lives in the web layer —
+  it's a thin display layer over functions already proven in
+  `src/features.py`
 
 ## What's NOT done yet
 
@@ -121,39 +138,39 @@ trajectories) — not just "the code runs."
 2. **`per90_vs_cohort_z`** — third prodigy z-score. Needs StatsBomb
    per-90 stats. Coverage gaps across leagues/seasons are a known,
    undocumented risk — audit before building on it.
-3. **Squad age & depth score** — planned in the original architecture,
-   never built. Age data already exists in the `players` table.
-4. **Tournament stage weighting** (group vs. knockout) — distinct from
+3. **Tournament stage weighting** (group vs. knockout) — distinct from
    the competition-*type* importance tiers already built. Not built.
-5. **Transfermarkt ↔ Wikipedia player linking** — `search_player_id`
+4. **Transfermarkt ↔ Wikipedia player linking** — `search_player_id`
    works and is proven to surface real ambiguity (a "Silva" search
    returns 8 distinct real players), but nothing yet cross-references a
    search result's club/nationality against what Wikipedia already
-   provided to auto-resolve matches with confidence. Until this exists,
+   provided to auto-resolve matches with confidence. **Paused**: blocked
+   by Transfermarkt's WAF as of 2026-07-27 — see methodology.md and the
+   `src/data_pipeline.py` note above before resuming. Until this exists,
    don't assume a name match is correct without a human checking it.
-6. **XGBoost classifier** — stub only. No training, tuning, or
+5. **XGBoost classifier** — stub only. No training, tuning, or
    validation yet. This and the next two items are the single biggest
    remaining chunk of work.
-7. **Poisson simulation** — stub only. Needs real attack/defence
+6. **Poisson simulation** — stub only. Needs real attack/defence
    parameter fitting. Open design question, deliberately deferred: whether
    to add a squad-quality covariate via Poisson regression
    (`λ = exp(base + attack - defence + β·prodigy_score)`) — don't build
    this until a backtest shows `goal_trend` doesn't already capture the
    same signal implicitly.
-8. **Monte Carlo tournament simulator** — not built at all.
-9. **Backtesting** — against Euro 2016/2020/2024 and World Cup 2022,
-   benchmarked against baseline and bookmaker odds. Blocked until 6-8
+7. **Monte Carlo tournament simulator** — not built at all.
+8. **Backtesting** — against Euro 2016/2020/2024 and World Cup 2022,
+   benchmarked against baseline and bookmaker odds. Blocked until 5-7
    exist.
-10. **Frontend beyond rolling form** — plan is one simple feature at a
-    time (goal trend, h2h, etc.), then an "AI insight" section at the
-    bottom once real model predictions exist to show. Don't build the AI
-    section with fabricated numbers in the meantime.
-11. **Projektbeschreibung** — the actual 10-15 page written report, due
+9. **Frontend beyond the four built features** — rolling form, h2h, goal
+   trend, and squad age/depth are all live now. Next planned piece is an
+   "AI insight" section at the bottom, once real model predictions exist
+   to show — don't build it with fabricated numbers in the meantime.
+10. **Projektbeschreibung** — the actual 10-15 page written report, due
     January 2027. `reports/methodology.md` is real material for this, not
     a substitute for it.
-12. **Poster & presentation** — Tomás's domain, blocked on real backtest
+11. **Poster & presentation** — Tomás's domain, blocked on real backtest
     results existing.
-13. **Jugend forscht registration** — due November 2026. Just a form, but
+12. **Jugend forscht registration** — due November 2026. Just a form, but
     a real hard date.
 
 ## How to write code for this project
