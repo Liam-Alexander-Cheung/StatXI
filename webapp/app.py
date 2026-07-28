@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request
 from flask import render_template
 import pandas as pd
 from src.data_pipeline import load_raw_matches, clean_matches, load_squads
-from src.features import rolling_form, head_to_head_record, goal_trend, squad_age_depth
+from src.features import rolling_form, head_to_head_record, goal_trend, squad_age_depth, team_chemistry
 
 app = Flask(__name__)
 
@@ -124,6 +124,26 @@ def api_squad_age_depth():
     # would also work as the check, but mean_age matches the pattern used
     # by the other single-value endpoints (rolling_form, h2h) most closely
     if pd.isna(result["mean_age"]):
+        return jsonify({"error": f"no squad data for '{team}' at '{tournament}'"}), 404
+
+    return jsonify({"team": team, "tournament": tournament, **result})
+
+
+@app.route("/api/team-chemistry")
+def api_team_chemistry():
+    team = request.args.get("team")
+    tournament = request.args.get("tournament")
+    if not team or not tournament:
+        return jsonify({"error": "missing 'team' or 'tournament' query parameter"}), 400
+
+    squads = get_squads()
+    result = team_chemistry(squads, team, tournament)
+
+    # club_hhi is the field that goes NaN when no squad matches (same
+    # reasoning as squad_age_depth's mean_age check) — the count fields are
+    # a true 0 even for a real empty result, so they can't distinguish
+    # "no squad found" from a squad that genuinely exists
+    if pd.isna(result["club_hhi"]):
         return jsonify({"error": f"no squad data for '{team}' at '{tournament}'"}), 404
 
     return jsonify({"team": team, "tournament": tournament, **result})

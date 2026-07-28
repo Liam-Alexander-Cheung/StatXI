@@ -47,6 +47,18 @@
 
     <p id="squad-result"></p>
 
+    <h1>Team Chemistry</h1>
+    <p class="feature-desc">Club-cohesion of a team's squad at one tournament: biggest single-club and two-club spines, a concentration index (HHI), and how many teammate pairs share a club. Higher = a squad built on one or two club cores rather than scattered across many clubs.</p>
+
+    <select id="chem-team-select">
+        <option value="">Loading teams...</option>
+    </select>
+    <select id="chem-tournament-select">
+        <option value="">Loading tournaments...</option>
+    </select>
+
+    <p id="chem-result"></p>
+
     <script>
         // fetch() makes an HTTP request from JavaScript, same idea as
         // curl, but running inside the browser instead of the terminal
@@ -213,6 +225,42 @@
             }
         }
 
+        // same two-dropdown pattern as onSquadSelected — re-read both the
+        // team and tournament values on any change, since team_chemistry is
+        // squad-scoped and needs both to identify one squad
+        async function onChemistrySelected() {
+            const team = document.getElementById("chem-team-select").value;
+            const tournament = document.getElementById("chem-tournament-select").value;
+            const resultEl = document.getElementById("chem-result");
+
+            if (!team || !tournament) {
+                resultEl.textContent = "";
+                return;
+            }
+
+            resultEl.textContent = "Loading...";
+            const response = await fetch(
+                `/api/team-chemistry?team=${encodeURIComponent(team)}&tournament=${encodeURIComponent(tournament)}`
+            );
+            const data = await response.json();
+
+            if (data.error) {
+                resultEl.textContent = `Error: ${data.error}`;
+            } else {
+                // lead with same_club_pair_ratio (the main feature) and the
+                // two spine sizes, then the supporting concentration numbers —
+                // mirrors how squad-age-depth shows headline + breakdown
+                resultEl.textContent =
+                    `${data.team} @ ${data.tournament} — ` +
+                    `same-club pair ratio: ${data.same_club_pair_ratio} ` +
+                    `(${data.same_club_pairs} pairs) | ` +
+                    `largest club bloc: ${data.largest_club_bloc}, ` +
+                    `top-2 bloc: ${data.top2_club_bloc}, ` +
+                    `HHI: ${data.club_hhi}, ` +
+                    `distinct clubs: ${data.n_distinct_clubs}`;
+            }
+        }
+
         // wire up each dropdown's change event, then load the team/tournament
         // lists as soon as the page itself finishes loading
         document.getElementById("team-select").addEventListener("change", onTeamSelected);
@@ -221,6 +269,8 @@
         document.getElementById("goal-trend-select").addEventListener("change", onGoalTrendTeamSelected);
         document.getElementById("squad-team-select").addEventListener("change", onSquadSelected);
         document.getElementById("squad-tournament-select").addEventListener("change", onSquadSelected);
+        document.getElementById("chem-team-select").addEventListener("change", onChemistrySelected);
+        document.getElementById("chem-tournament-select").addEventListener("change", onChemistrySelected);
 
         // five separate loadTeams() calls means five separate fetches of
         // the same /api/teams payload on every page load, instead of
@@ -235,6 +285,8 @@
         loadTeams(document.getElementById("goal-trend-select"));
         loadTeams(document.getElementById("squad-team-select"));
         loadTournaments(document.getElementById("squad-tournament-select"));
+        loadTeams(document.getElementById("chem-team-select"));
+        loadTournaments(document.getElementById("chem-tournament-select"));
     </script>
 </body>
 </html>

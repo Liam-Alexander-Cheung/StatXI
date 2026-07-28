@@ -1,5 +1,6 @@
+import math  # math.comb(k, 2) counts unordered pairs — used for club-pair chemistry
 import pandas as pd
-#import recency_weight and imortance_weight from data_pipeline. 
+#import recency_weight and imortance_weight from data_pipeline.
 from src.data_pipeline import recency_weight, importance_weight
 
 
@@ -225,6 +226,85 @@ def squad_age_depth(squads: pd.DataFrame, team: str, tournament_name: str) -> di
         "position_proportions": position_proportions,
     }
 
+
+def team_chemistry(squads: pd.DataFrame, team: str, tournament_name: str) -> dict:
+    """
+    Club-cohesion profile for `team`'s squad at one specific tournament.
+    Squad-scoped, exactly like squad_age_depth — a tournament squad is a
+    single fixed list of players, each with the club they played for at
+    that time (the DB stores the *as-of-tournament* club, so this is
+    era-correct with zero extra work).
+
+    The idea is borrowed, honestly, from video-game "chemistry": players
+    who share a club understand each other on the pitch. For an
+    international squad the nationality link is degenerate (everyone shares
+    it), so the discriminating signal is club concentration — a squad built
+    on one or two club spines (Germany 2014's Bayern core, Spain 2010's
+    Barça+Real core) versus one scattered across many clubs.
+
+    Metrics, where n = squad size and c_i = number of players at club i:
+      largest_club_bloc     max(c_i)          — biggest single-club spine
+      top2_club_bloc        two largest c_i   — two-club spine
+      club_hhi              Σ (c_i/n)²        — Herfindahl concentration:
+                                                1.0 = all one club,
+                                                ≈1/n = all different clubs
+      same_club_pairs       Σ C(c_i, 2)       — teammate pairs sharing a club
+      same_club_pair_ratio  same_club_pairs / C(n, 2)  — normalized pair
+                                                density (the main feature)
+      n_distinct_clubs      count of clubs    — inverse breadth
+
+    Missing-data rule (same discipline as squad_age_depth): if
+    team/tournament_name matches no squad, counts are a true 0 but ratios
+    are NaN, never a guessed value — "0 out of 0" is undefined, not zero.
+    """
+    squad = squads[
+        (squads["team"] == team) & (squads["tournament_name"] == tournament_name)
+    ]
+
+    if len(squad) == 0:
+        return {
+            "largest_club_bloc": 0,
+            "top2_club_bloc": 0,
+            "club_hhi": float("nan"),
+            "same_club_pairs": 0,
+            "same_club_pair_ratio": float("nan"),
+            "n_distinct_clubs": 0,
+        }
+
+    n = len(squad)
+    # value_counts returns per-club counts already sorted high→low, so
+    # .iloc[0] is the largest bloc and .iloc[:2] the two largest
+    club_counts = squad["club"].value_counts()
+
+    largest_club_bloc = int(club_counts.iloc[0])
+    top2_club_bloc = int(club_counts.iloc[:2].sum())
+    n_distinct_clubs = int(len(club_counts))
+
+    # Herfindahl index: sum of squared club shares. Cast to plain float so
+    # it serializes to JSON cleanly (value_counts / n gives numpy floats)
+    club_hhi = float(((club_counts / n) ** 2).sum())
+
+    # C(c_i, 2) = number of within-club teammate pairs for a club of size
+    # c_i; summed over clubs gives total same-club pairs. math.comb(k, 2)
+    # is "k choose 2" = k*(k-1)/2
+    same_club_pairs = int(sum(math.comb(int(c), 2) for c in club_counts))
+
+    # normalize by the total number of possible pairs in the squad, C(n, 2).
+    # Guard n < 2 (no pairs possible) → NaN rather than a 0/0 crash; real
+    # squads are ~23 players so this only guards a degenerate input
+    total_pairs = math.comb(n, 2)
+    same_club_pair_ratio = (
+        same_club_pairs / total_pairs if total_pairs > 0 else float("nan")
+    )
+
+    return {
+        "largest_club_bloc": largest_club_bloc,
+        "top2_club_bloc": top2_club_bloc,
+        "club_hhi": round(club_hhi, 3),
+        "same_club_pairs": same_club_pairs,
+        "same_club_pair_ratio": round(same_club_pair_ratio, 3),
+        "n_distinct_clubs": n_distinct_clubs,
+    }
 
 
 from datetime import datetime

@@ -55,7 +55,8 @@ def load_squads() -> pd.DataFrame:
             s.country AS team,
             t.name AS tournament_name,
             p.position,
-            p.age_at_tournament
+            p.age_at_tournament,
+            p.club
         FROM players p
         JOIN squads s ON p.squad_id = s.squad_id
         JOIN tournaments t ON s.tournament_id = t.tournament_id

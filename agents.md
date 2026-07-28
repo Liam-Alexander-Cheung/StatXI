@@ -50,7 +50,7 @@ see "Practical notes" below). Three areas:
 - `matches` — cleaned historical match results (Kaggle source, 1990+)
 - `former_names` — historical team-rename lookup table
 - `tournaments` → `squads` → `players` — relational squad data scraped
-  from Wikipedia, real foreign keys, 18 tournaments / ~380 squads / 10,038
+  from Wikipedia, real foreign keys, 18 tournaments / 432 squads / 10,038
   player-tournament rows
 
 **Prediction layer:** XGBoost classifier + Poisson/Monte Carlo simulator,
@@ -58,8 +58,8 @@ both currently stubs (see "What's not done yet").
 
 **Web layer:** Flask backend (`webapp/`) exposing feature data via a
 simple JSON API, consumed by a plain HTML/JS frontend. Built incrementally,
-one feature at a time — four features live now (rolling form, h2h, goal
-trend, squad age/depth), see "What's built and verified" below.
+one feature at a time — five features live now (rolling form, h2h, goal
+trend, squad age/depth, team chemistry), see "What's built and verified" below.
 
 ## What's built and verified (as of the last working session)
 
@@ -98,18 +98,33 @@ trend, squad age/depth), see "What's built and verified" below.
   counts and proportions for a team's squad at one tournament — squad-
   scoped, not date-scoped like the three above, since a tournament squad
   is a single fixed list
+- `team_chemistry` — club-cohesion of a team's squad at one tournament
+  (largest/two-club spine, Herfindahl concentration, same-club pair
+  ratio, distinct-club count) from the already-populated `club` column —
+  squad-scoped, era-correct with zero scraping (v2 Workstream A, done)
 - `transfer_value_delta_z` — returns **raw** market values at two points
   in time, deliberately NOT z-scored inside the function; z-scoring
   belongs at the squad-cohort level, done by the caller
 
-All five are tested against real, checkable football knowledge (Germany
+All six are tested against real, checkable football knowledge (Germany
 vs. San Marino, Argentina vs. Brazil, Kimmich vs. Musiala market-value
-trajectories, Germany's and France's actual tournament squads) — not
-just "the code runs."
+trajectories, Germany's and France's actual tournament squads, Germany
+2014's Bayern bloc vs. Cameroon 2022's 26-clubs-for-26-players scatter) —
+not just "the code runs."
+
+### `src/name_matching.py`
+- `normalize_name` — diacritic/punctuation-free lowercase token string via
+  Unicode NFKD (Müller→muller, İlkay→ilkay, Łukasz→lukasz), strips "(c)"
+  captain markers, reorders "Surname, Forename". `name_similarity` —
+  `rapidfuzz` token-set ratio in [0,1]. Verified on real DB names; source-
+  agnostic string half of the FIFA-rating matching (v2 Workstream C). The
+  blocking/scoring matcher is not built — it needs the rating dataset,
+  which isn't acquired yet.
+- **New dependency `rapidfuzz`** added with user sign-off (requirements.txt).
 
 ### `src/database.py` + schema
 - `get_connection()` — SQLite connection helper
-- Relational schema: `tournaments` (18 rows) → `squads` (~380 rows) →
+- Relational schema: `tournaments` (18 rows) → `squads` (432 rows) →
   `players` (10,038 rows), real `FOREIGN KEY` constraints
 - **`PRAGMA foreign_keys = ON` must be set explicitly per connection** —
   SQLite does not enforce foreign keys by default
@@ -118,13 +133,14 @@ just "the code runs."
 
 ### `webapp/`
 - Flask backend: `/api/teams`, `/api/tournaments`, `/api/rolling-form`,
-  `/api/h2h`, `/api/goal-trend`, `/api/squad-age-depth`
+  `/api/h2h`, `/api/goal-trend`, `/api/squad-age-depth`,
+  `/api/team-chemistry`
 - Both match data and squad data are cached and **warmed at server
   startup**, not lazily on first request — the full clean/normalize
   pipeline takes ~14s, and a live user should never be the one who pays
   that cost
-- `templates/index.html` — four features live: rolling form, head-to-head
-  record, goal trend, squad age/depth. Each has its own dropdown(s), a
+- `templates/index.html` — five features live: rolling form, head-to-head
+  record, goal trend, squad age/depth, team chemistry. Each has its own dropdown(s), a
   one-line description of what it computes, and a result area, all
   dynamically populated from the real dataset (not hardcoded) and wired
   to the API via `fetch()`. No new model logic lives in the web layer —

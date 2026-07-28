@@ -521,3 +521,156 @@ Caught *before* it wasted the ~10-minute matrix build, by running a synthetic
 XGBoost smoke test first rather than assuming the library worked. Worth
 remembering: the failure message names OpenMP, not XGBoost, so it reads like an
 unrelated system problem.
+
+## Team chemistry (v2, Workstream A)
+
+The first v2 squad-quality feature, and the one built first *because* it needs no
+scraping: the `club` column is already 100% populated in the `players` table
+(verified: 0 NULL/empty of 10,038), and it stores the *as-of-tournament* club, so
+the feature is era-correct with zero extra work — no leakage risk, no
+network dependency, no name-matching problem to solve first.
+
+**The idea, borrowed honestly from video-game chemistry.** FIFA/FC chemistry
+rewards links between players who share a club, league, or nationality. For an
+international squad the **nationality link is degenerate** (everyone shares it),
+so it carries no information here — the discriminating signal is **club
+concentration**. Football history backs this: cohesive tournament sides often had
+a dominant club spine (Spain 2010's Barça/Real core, Germany 2014's Bayern core),
+while club-scattered squads less so. League-level chemistry is the same math on
+leagues, but is **deferred to Workstream B** — we have no club→league map until a
+ratings dataset (which carries `league`) is joined.
+
+**Metrics** (`team_chemistry(squads, team, tournament_name)` in `features.py`,
+squad-scoped exactly like `squad_age_depth`). With n = squad size and c_i = count
+of players at club i: `largest_club_bloc` = max(c_i); `top2_club_bloc` = two
+largest; `club_hhi` = Σ(c_i/n)² (Herfindahl concentration, 1.0 = all one club,
+≈1/n = all different); `same_club_pairs` = Σ C(c_i, 2) (teammate pairs sharing a
+club); `same_club_pair_ratio` = same_club_pairs / C(n, 2) (the main, size-
+normalized feature); `n_distinct_clubs`.
+
+**Missing-squad handling** (same discipline as `squad_age_depth`): counts are a
+true `0`, but `club_hhi` and `same_club_pair_ratio` are `NaN` — "0 out of 0" is
+undefined, not a guessed `0.0`.
+
+**Verification** — computed metrics were cross-checked against a direct
+`SELECT club, COUNT(*) ... GROUP BY club`, and the hand-computed formulas match
+the function exactly:
+- **Germany, World Cup 2014:** Bayern bloc of 7 (Neuer, Lahm, Boateng, Müller,
+  Kroos, Schweinsteiger, Götze) → `largest_club_bloc` 7, `top2_club_bloc` 11
+  (+ 4 Dortmund), `club_hhi` 0.161, `same_club_pairs` 31, `n_distinct_clubs` 11.
+- **Spain, World Cup 2010:** Barça 7 + Real 5 → a *tighter two-club spine* than
+  Germany (`top2_club_bloc` 12 vs 11, `club_hhi` 0.191 vs 0.161), exactly the
+  distinction the metric is meant to capture.
+- **Discrimination check across all 432 squads** (not just "it runs"): the most
+  *scattered* squad is **Cameroon, World Cup 2022** — 26 players across 26
+  different clubs (`largest_club_bloc` 1, `same_club_pairs` 0, `club_hhi` 0.038),
+  alongside Ghana 2022, Nigeria/Algeria 2014. The most *concentrated* are host
+  nations with domestic-league cores (Qatar & Saudi Arabia 2022) plus USA 1994
+  and Egypt/Romania 1990. Both extremes are football-sensible, confirming the
+  metric separates squads rather than returning noise.
+
+**Loader change:** `load_squads()` now also selects `p.club` (previously only
+team/tournament/position/age). Additive — every existing caller just filters the
+frame, so nothing downstream broke.
+
+**Web layer:** exposed as `/api/team-chemistry?team=...&tournament=...` mirroring
+`/api/squad-age-depth` (missing-data check on `club_hhi`, the NaN-when-empty
+field), plus a "Team Chemistry" card on the frontend. Warmed at startup via the
+existing `get_squads()` cache — no new load-time cost.
+
+**Caveat carried into Workstream E's ablation:** chemistry may be *confounded with
+quality* (good players cluster at good clubs), so it must be shown to add signal
+*beyond* ratings, not assumed to. That is the whole point of the planned ablation
+(v1 vs v1+ratings vs v1+ratings+chemistry vs v1+chemistry). Also unresolved: the
+squad-level metric may wash out because only ~11 of 23–26 players start — a
+caps-weighted variant is flagged as a follow-up if the plain one underperforms.
+
+## Name normalization for cross-source matching (v2, Workstream C — string half)
+
+Built the source-agnostic string layer of the player→rating matching problem
+ahead of the rating dataset itself, because it is testable against our *own*
+player names with zero external data. Two functions in `src/name_matching.py`:
+
+- `normalize_name(s)` — collapses a name to a diacritic-free, punctuation-free,
+  lowercase token string. The core trick is **Unicode NFKD**: it splits an
+  accented character into base letter + a separate combining mark (ü → u + ¨), so
+  the mark can be deleted and accented/unaccented spellings collapse together.
+  On top of NFKD it: strips `(c)`/footnote parentheticals (real rows carry a
+  captain marker — "Lionel Messi (c)"), reorders "Surname, Forename", folds the
+  handful of letters NFKD leaves alone (ø, ł, ß, æ, đ, Turkish dotless ı), drops
+  apostrophes with no gap ("N'Golo" → "ngolo"), and turns other punctuation into
+  spaces.
+- `name_similarity(a, b)` — `rapidfuzz.fuzz.token_set_ratio` over the normalized
+  names, scaled to [0, 1]. **New dependency `rapidfuzz` added with user sign-off**
+  (recorded in requirements.txt); the plan's preferred choice over stdlib difflib
+  for its token-*set* logic, which is robust to word order and to one name
+  carrying extra tokens — the Spanish/Portuguese two-surname case.
+
+**Verified against real DB names** (all 12 exact-match cases pass): İlkay
+Gündoğan → "ilkay gundogan", Łukasz Fabiański → "lukasz fabianski", the "(c)"
+marker stripped, surname-first reordered, empty/None → "". Similarity gives 1.00
+for same-player/different-spelling ("İlkay Gündoğan" ~ "Ilkay Gundogan"; "Lionel
+Messi" ~ "Lionel Andrés Messi Cuccittini" — the extra surnames don't hurt) and
+0.31–0.35 for genuinely different players — a clean separation to threshold on.
+
+**Known, accepted limitation:** NFKD maps ü → u, so the German transliteration
+"Mueller" will *not* collapse to "Müller" → "muller". Such cases are left for the
+matcher's DOB/club block + fuzzy score to catch, or the manual review queue —
+never a silent wrong match (the no-fabrication rule).
+
+**Still blocked (the rest of Workstream B/C/D/E):** the actual FIFA rating dataset
+is not yet acquired — no Kaggle CLI/credentials in this environment. The
+blocking→score→tier *matching algorithm*, the `player_ratings` schema, the
+rating-based squad features, and the retrain/ablation all wait on that dataset
+being placed in `data/raw/` (or Kaggle credentials provided). Source decided with
+the user: **static Kaggle FIFA/FC dataset** (per-edition, carries `potential` —
+the cold-start signal — plus club/league/DOB; no scraping, no anti-bot).
+
+## Bug: two dependencies were merged onto one line in requirements.txt
+
+Found while adding `rapidfuzz`: line 10 read `pytest>=8.0beautifulsoup4>=4.12` —
+two requirements with no line break between them. pip parses one line as one
+requirement, so this is not "pytest and beautifulsoup4"; it's a single invalid
+specifier (`pytest>=8.0beautifulsoup4>=4.12`) that makes
+`pip install -r requirements.txt` error out and install *nothing*. It survived
+unnoticed because the working venv was populated incrementally with individual
+`pip install` commands, so the broken file was never actually the install path.
+A textbook "the file that documents how to reproduce the environment can't
+reproduce the environment" bug — the kind only a fresh clone would have hit.
+Fixed by splitting to two lines; `rapidfuzz>=3.0` added below.
+
+## Verify-don't-assume: the squad count is 432, not "~380"
+
+`agents.md` and the v2 plan both describe the squad data as "~380 squads". The
+real number, checked directly (`SELECT COUNT(*) FROM squads`), is **432** — and
+they are 432 *distinct* (country, tournament) pairs, so it isn't duplication. It
+reconciles exactly with the tournaments' real team counts across the 18 editions:
+160 Euro squads (8 in 1992, 16 through 2012, 24 from 2016) + 272 World Cup squads
+(24 in 1990/1994, 32 from 1998) = 432, over 10,038 players. The "~380" was an
+undocumented approximation; the exact figure is now corrected in `agents.md`. Not
+a bug, but a reminder that a round-ish number carried in prose is worth checking
+before quoting it in the write-up.
+
+## Finding: "already-cleaned" scraped names still carry `(c)` captain markers
+
+The schema notes describe `player_name` as having "diacritics, footnotes already
+stripped". Verifying `normalize_name` against *real* rows (not invented test
+strings) surfaced a counterexample the plan didn't anticipate: some names still
+carry a trailing `(c)` captain marker — e.g. `Lionel Messi (c)`. Left unhandled,
+that leaves a spurious one-letter `c` token that would quietly drag down every
+similarity score for captains — precisely the star players (Messi, Ronaldo) whose
+matches most need to be right. Caught only because the verification used the
+database's own strings; this is exactly why the project tests features against
+real, checkable data rather than "the code runs". `normalize_name` now strips any
+`(...)` parenthetical before tokenizing.
+
+## Environment: rating-acquisition tooling absent, CSV caching kept as default
+
+For the record, so a later session doesn't rediscover it: this environment has
+**no `kaggle` CLI, no `kaggle` Python package, and no `~/.kaggle/kaggle.json`
+credentials**, and neither `rapidfuzz` nor `pyarrow` was installed at the start of
+the session. `rapidfuzz` is now installed (user-approved). `pyarrow` was
+deliberately *not* added — the plan's default is CSV caching for any downloaded
+rating files, and no caching has happened yet (no dataset), so there is nothing to
+decide until the data actually lands. PyPI itself is reachable (pip works), so the
+only blocker to Workstream B is the dataset/credentials, not general network.
