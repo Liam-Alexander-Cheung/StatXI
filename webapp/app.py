@@ -169,4 +169,8 @@ def index():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)  # must be last — nothing after this line ever runs
+    # port 5001, not 5000: on macOS the AirPlay Receiver (ControlCenter) squats
+    # on 5000, and a stale Flask process from a previous run can hold it too —
+    # both surface as "Address already in use". must be last — nothing after
+    # this line ever runs
+    app.run(debug=True, port=5001)
