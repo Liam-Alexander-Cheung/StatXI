@@ -1,6 +1,9 @@
-# euro2028-prediction
+# StatXI
 
-Predicting UEFA Euro 2028 match outcomes using machine learning and classical statistical simulation.
+A general football match-outcome prediction project, combining a machine
+learning classifier (Win/Draw/Loss) with classical statistical simulation
+(Poisson/Monte Carlo scorelines). Backtested against real historical
+tournaments, with UEFA Euro 2028 as the current milestone.
 
 Jugend forscht 2026/2027 entry - Mathematik & Informatik.
 

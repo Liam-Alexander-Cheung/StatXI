@@ -9,7 +9,7 @@ data/processed/*
 .DS_Store
 .env
 terminal_prompts.txt
-data/euro2028.db
+data/statxi.db
 squads_flat_backup.csv
 player_ratings_backup.csv
 ratings_match_review_queue.csv

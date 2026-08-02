@@ -40,7 +40,7 @@ players) and **squad cohesion** (do they play together). This plan adds both.
 - SQLite FK constraints are OFF by default — `PRAGMA foreign_keys = ON` per
   connection (see `src/database.py`).
 - **Never commit derived/regenerable data** — add any new scraped/cached/DB
-  artifacts to `.gitignore` (see how `data/processed/*`, `data/euro2028.db`,
+  artifacts to `.gitignore` (see how `data/processed/*`, `data/statxi.db`,
   `src/models/wdl_xgb.json` are handled).
 - **No self-directed browser testing** — the user runs visual/browser checks.
 
@@ -71,7 +71,7 @@ for ratings by matching each tournament to its rating edition (§4).
 
 ## 2. What we already have locally (don't re-scrape this)
 
-`data/euro2028.db`, table `players` (10,038 rows, one per player-per-tournament):
+`data/statxi.db`, table `players` (10,038 rows, one per player-per-tournament):
 
 | column | notes |
 |---|---|

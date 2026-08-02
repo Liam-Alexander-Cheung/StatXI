@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 
 WIKI_HEADERS = {
-    "User-Agent": "euro2028-prediction research project (student Jugend forscht entry; contact: coding@liamcheung.de)"
+    "User-Agent": "StatXI football-prediction research project (student Jugend forscht entry; contact: coding@liamcheung.de)"
 }
 
 import re  # needed for stripping footnote markers from column headers

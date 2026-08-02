@@ -4,7 +4,13 @@ Guidance for Claude Code when working in this repository.
 
 ## What this project is
 
-Jugend forscht 2026/27 entry: a UEFA Euro 2028 match prediction model.
+**StatXI** — a Jugend forscht 2026/27 entry: a general football
+match-outcome prediction project, not tied to one tournament. UEFA Euro 2028
+is the project's current milestone/goal, not its identity — the actual
+deliverable is a general prediction approach, backtested against real past
+tournaments, that happens to have Euro 2028 as its forward-looking test case
+(see "Important scoping fact" below for why Euro 2028 specifically can only
+ever be a hypothetical run, not a live prediction).
 Repo: github.com/Liam-Alexander-Cheung/euro2028-prediction.
 
 Two prediction targets, deliberately built with two different methods:
@@ -45,7 +51,7 @@ projected qualification scenarios, not presented as a final prediction.
 
 ## Architecture
 
-**Data layer:** SQLite, `data/euro2028.db` (never committed — regenerable,
+**Data layer:** SQLite, `data/statxi.db` (never committed — regenerable,
 see "Practical notes" below). Three areas:
 - `matches` — cleaned historical match results (Kaggle source, 1990+)
 - `former_names` — historical team-rename lookup table
@@ -225,7 +231,7 @@ not just "the code runs."
 
 - Python 3.9, venv at `./venv` — activate with `source venv/bin/activate`
   before running anything.
-- **Never commit derived/regenerable data**: `data/euro2028.db`,
+- **Never commit derived/regenerable data**: `data/statxi.db`,
   `squads_flat_backup.csv`, and everything under `data/raw/` are
   gitignored on purpose. Rebuild via `migrate_to_db.py`,
   `scrape_all_squads.py`, and `build_squad_schema.py` — don't try to

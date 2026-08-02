@@ -143,7 +143,7 @@ a refactor matters more than reading a diff — the deletion wouldn't have
 been visually obvious in a quick review, but it broke observable behavior
 immediately.
 
-The database file itself (`data/euro2028.db`) is not committed to the
+The database file itself (`data/statxi.db`) is not committed to the
 repository — same reasoning as the raw CSVs it replaced: it's regenerable
 by running `migrate_to_db.py` against the source data, and derived data
 doesn't belong in version control.

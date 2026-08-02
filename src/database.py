@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).resolve().parents[1] / "data" / "euro2028.db"
+DB_PATH = Path(__file__).resolve().parents[1] / "data" / "statxi.db"
 
 
 def get_connection() -> sqlite3.Connection:
