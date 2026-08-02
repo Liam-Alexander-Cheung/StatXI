@@ -11,7 +11,7 @@ deliverable is a general prediction approach, backtested against real past
 tournaments, that happens to have Euro 2028 as its forward-looking test case
 (see "Important scoping fact" below for why Euro 2028 specifically can only
 ever be a hypothetical run, not a live prediction).
-Repo: github.com/Liam-Alexander-Cheung/statxi.
+Repo: github.com/Liam-Alexander-Cheung/StatXI.
 
 Two prediction targets, deliberately built with two different methods:
 
