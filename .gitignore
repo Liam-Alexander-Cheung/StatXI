@@ -11,5 +11,7 @@ data/processed/*
 terminal_prompts.txt
 data/euro2028.db
 squads_flat_backup.csv
+player_ratings_backup.csv
+ratings_match_review_queue.csv
 # trained model — derived/regenerable via src/models/train_wdl.py
 src/models/wdl_xgb.json

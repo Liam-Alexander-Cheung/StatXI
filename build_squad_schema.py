@@ -108,6 +108,9 @@ def main():
             goals INTEGER,
             club TEXT,
             transfermarkt_player_id TEXT,
+            sofifa_player_id INTEGER,
+            rating_match_score REAL,
+            rating_match_tier TEXT,
             FOREIGN KEY (squad_id) REFERENCES squads(squad_id)
         );
     """)

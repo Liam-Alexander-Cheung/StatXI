@@ -664,6 +664,281 @@ database's own strings; this is exactly why the project tests features against
 real, checkable data rather than "the code runs". `normalize_name` now strips any
 `(...)` parenthetical before tokenizing.
 
+## Rating data acquired: `player_ratings` schema (v2, Workstream B)
+
+Unblocked the session's stated master blocker. Two corrections to the plan's
+own assumptions surfaced along the way, both caught by checking directly
+rather than trusting the starting description.
+
+**Source correction:** the plan named Kaggle user "bryanb" as the source of
+per-edition "complete" FIFA datasets sized 2017-2023. Checked directly
+(`kaggle datasets list --user bryanb`): bryanb has exactly one FIFA dataset,
+a single edition (FIFA23), not a multi-year family. The actual well-known
+multi-edition "complete player dataset" series is published by
+**stefanoleone992** — this is what was actually wanted and is what got used.
+
+**Coverage correction, found by inspecting the file rather than assuming from
+its name:** `stefanoleone992/ea-sports-fc-24-complete-player-dataset`'s
+`male_players.csv` (96MB) turned out to be a strict superset of
+`stefanoleone992/fifa-23-complete-player-dataset`'s `male_players (legacy).csv`
+(91MB) — one clean snapshot per edition, **FIFA 15 through FC 24** (Sept 2014
+- Sept 2023), 180,021 rows, 10 editions, in a single file. Verified, not
+assumed: row counts per edition sum exactly to the total (161,583 + 18,350 =
+180,021), and the two files' overlapping FIFA23 slice matched exactly - same
+18,533 `player_id`s, zero `overall`-rating mismatches. The now-redundant
+smaller legacy file was deleted; only `data/raw/fc24_male_players.csv` is
+kept.
+
+**Consequence: the plan's "2023 as baseline, fall back to older editions for
+players missing from it" strategy is unnecessary.** One file already gives
+every backtest tournament in agents.md its own era-correct edition, matched
+to the closest snapshot *before* that tournament: Euro 2016 -> FIFA 16
+(2015-09-21), WC 2018 -> FIFA 18/19, Euro 2020 (played 2021, COVID delay) ->
+FIFA 21 (2020-09-23), WC 2022 -> FIFA 23 (2022-09-26, ~2 months out), Euro
+2024 -> FC 24 (2023-09-22). This is also the methodologically better choice,
+not just the simpler one - the earlier Kimmich/Musiala finding already
+established that rating signal is tournament-date-sensitive, so a single
+"2023 for everyone" baseline would have been the wrong design even if the
+data had required it.
+
+**Licence: CC0-1.0** (public domain dedication) on both datasets - confirmed
+via `kaggle datasets metadata`, not assumed from the dataset page. Clears the
+non-commercial-research-use gate cleanly; no restriction to record beyond
+"there isn't one."
+
+**Kaggle tooling finding:** the API token format Kaggle issued
+(`KGAT_...`, via kaggle.com's newer "API Token" UI) is not supported by
+either pip-installable client - `kaggle==1.7.4.5` or `kagglehub==0.3.13`,
+both the current latest on PyPI at the time of checking. Grepped both
+packages' full source for `access_token`/`api_token`/`KGAT`: zero hits in
+either. Fell back to the older scheme (`kaggle.json`, username+key,
+generated from Kaggle's legacy "Create New Token" button), which both
+packages do support. Worth remembering next time a fresh Kaggle token is
+needed: get the legacy `kaggle.json`, not the newer API-token-page format,
+until client-library support catches up.
+
+**Schema built** (`build_ratings_schema.py`, mirroring `build_squad_schema.py`'s
+pattern): a standalone `player_ratings` table, 18 typed columns covering
+identity (`sofifa_player_id` - named to match the existing
+`transfermarkt_player_id` precedent on `players`), the rating signal
+(`overall`, `potential`), and bio/club/league fields, `UNIQUE
+(sofifa_player_id, fifa_version)`. Deliberately excludes the source CSV's
+~90 granular sub-attribute columns (pace, dribbling, ...) - nothing in the
+v2 plan calls for them; can be added later if that changes. No foreign key
+into `tournaments`/`squads`/`players` yet, since nothing has matched a
+rating row to a specific squad player - that's the next, separate step (the
+blocking->score->tier matcher, still not built).
+
+**Verification** against real, checkable football knowledge: Cristiano
+Ronaldo's `overall` trajectory (92 -> 94 peak -> 86 by FC24) and club history
+(Real Madrid -> Juventus -> Man Utd -> Al Nassr) both match reality exactly
+across all 10 editions. Messi initially returned zero rows under a naive
+`LIKE '%Lionel Messi%'` query - not a data bug, but the query being too
+naive: his `long_name` is "Lionel Andrés Messi Cuccittini", and the middle
+name breaks a literal substring match. Re-querying on `%Messi%` found him
+correctly (93 -> 94 peak -> 90 by FC24) - a real, live example of exactly the
+problem `name_matching.py`'s token-set similarity exists to solve, caught
+during this step even though the full matcher isn't built yet. The "Silva"
+ambiguity check was also re-run against this new source (270 matches at
+`fifa_version=16`, mixing real Silvas with Brazilian "da Silva" surnames like
+Neymar and Willian) - confirms the same disambiguation problem found earlier
+against Transfermarkt search is real here too, not an artifact of that one
+source.
+
+## Player-rating matcher: blocking -> score -> tier (v2, Workstream B/C)
+
+The step planned in ToDo.txt after `player_ratings` existed: link a specific
+Wikipedia `players` row (a real human's appearance in a real squad at a real
+tournament) to a specific `player_ratings` row (that same human's FIFA/FC
+attributes), so squad-quality features can actually use `overall`/`potential`
+rather than just club/age/position. Built as `link_player_ratings.py`.
+
+**Scope, stated honestly:** only 5 of the 18 tournaments in `tournaments`
+fall inside the ratings source's actual coverage window (FIFA 15-24, Sept
+2014 - Sept 2023): Euro 2016, World Cup 2018, Euro 2020, World Cup 2022,
+Euro 2024. The other 13 (every Euro 1992-2012, every World Cup 1990-2014)
+get no rating link at all, full stop - there is no FIFA video game rating
+for a 1996 squad to find, and nothing here pretends otherwise. This is also
+exactly the backtest tournament list from agents.md, which is not a
+coincidence worth taking credit for - it's the reason those tournaments were
+chosen as the backtest set in the first place.
+
+**Era-matching, made concrete in code** (previously only reasoned about by
+hand in this file): each tournament maps to the closest FIFA/FC edition
+dated *before* it - Euro 2016->FIFA16, World Cup 2018->FIFA18, Euro
+2020->FIFA21 (the actual June 2021 COVID-delayed date, not the "2020" name),
+World Cup 2022->FIFA23, Euro 2024->FC24. World Cup 2018 was the one real
+decision: FIFA19 (released 2018-08-21) is technically closer in calendar
+time to the tournament's aftermath but was released *after* the World Cup
+already finished (14 June - 15 July 2018) - using it would mean rating
+players partly on hindsight from a tournament the rating is meant to help
+predict. FIFA18 (2017-09-18, ~9 months prior) is the last edition that
+predates the tournament entirely, so it was chosen for consistency with
+every other tournament's "closest *preceding* snapshot" rule.
+
+**Nationality-name mismatch, found by diffing, not assumed:** compared every
+Euro/World Cup squad's `country` value against `player_ratings.nationality_name`
+for all 5 in-scope tournaments (136 country-tournament pairs checked). Found
+exactly one mismatch: Wikipedia's "South Korea" vs sofifa's "Korea Republic"
+(sofifa distinguishes "Korea Republic" from "Korea DPR" - North Korea). A
+single hardcoded alias (`NATIONALITY_ALIASES`) fixes it; everything else,
+including harder cases like "Czech Republic" and "Republic of Ireland",
+already matched verbatim.
+
+**Method - blocking, score, tier:**
+- *Block*: cut the ~180,021-row candidate pool down before any string
+  comparison, using the tournament's own fifa_version and the (aliased)
+  nationality. Turns an O(3,364 squad-players x 180,021 ratings) problem
+  into O(squad-size x same-nationality-same-edition candidates) - typically
+  a few dozen to a few hundred per player.
+- *Score*: `name_similarity()` (already built, `src/name_matching.py`)
+  against both the source's `short_name` and `long_name`, taking whichever
+  scores higher - sofifa's short display names ("L. Messi") and Wikipedia's
+  fuller forms don't always score identically against `token_set_ratio`.
+  Combined with an exact `date_of_birth` match, treated as close to decisive
+  on its own: two different real people sharing both a fuzzy-similar name
+  *and* an identical birthdate is vanishingly unlikely.
+- *Tier*: **high** (name_score >= 0.90 AND dob matches) is auto-written to
+  `players.sofifa_player_id`/`rating_match_score`/`rating_match_tier`.
+  **medium** (strong on one signal, weak on the other) is written to
+  `ratings_match_review_queue.csv` (gitignored, regenerable) for a human to
+  check - never auto-linked. Anything weaker than medium is left alone
+  entirely, not even logged - below name_score 0.55 is within the
+  "genuinely different people" noise floor `name_matching.py`'s own
+  docstring already established (0.31-0.35 for real non-matches).
+
+**Schema note:** `sofifa_player_id`, `rating_match_score`, `rating_match_tier`
+were added directly to `players` (`ALTER TABLE` on the live DB, and to
+`build_squad_schema.py`'s own `CREATE TABLE` statement so a future full squad
+rebuild doesn't silently drop the columns) - following the exact precedent
+already set by the existing, still-unused `transfermarkt_player_id` column,
+rather than a separate bridge table. A full squad rebuild would still *reset*
+the linked values to NULL (same as it already does for
+`transfermarkt_player_id` today), requiring a re-run of the matcher
+afterward - an accepted, documented characteristic, not a surprise for a
+later session to rediscover.
+
+**Coverage** (players matched at "high" tier / total, per tournament):
+
+| Tournament | Total | High | Review | Unmatched | Coverage |
+|---|---|---|---|---|---|
+| Euro 2016 | 552 | 454 | 25 | 73 | 82.2% |
+| World Cup 2018 | 736 | 592 | 55 | 89 | 80.4% |
+| Euro 2020 | 623 | 558 | 12 | 53 | 89.6% |
+| World Cup 2022 | 831 | 677 | 49 | 105 | 81.5% |
+| Euro 2024 | 622 | 570 | 12 | 40 | 91.6% |
+| **Total** | **3,364** | **2,851** | **153** | **360** | **84.7%** |
+
+**Verification against real, checkable football knowledge:**
+- **Ronaldo** (Portugal, present in all 5 in-scope tournaments): the *same*
+  `sofifa_player_id` (20801) linked at "high" tier, score 1.0, in every one -
+  and the linked `overall`/`club_name` values (93/Real Madrid -> 94/Real
+  Madrid -> 92/Juventus -> 90/Man Utd -> 86/Al Nassr) match exactly what was
+  already independently verified straight from `player_ratings` when the
+  schema was first built. Pre-2016 tournaments (Euro 2004 through World Cup
+  2014) correctly returned no match at all - outside the ratings window, as
+  designed, not a bug.
+- **Messi** (Argentina, World Cup 2018 + 2022): same `sofifa_player_id`
+  (158023) both times, score 1.0, `club_name` correctly moving
+  FC Barcelona -> Paris Saint Germain between the two snapshots - matching
+  his actual August 2021 transfer.
+- **"(c)" captain-marker leak, found as a side effect, not part of this
+  step's own work:** Portugal's Ronaldo rows for World Cup 2010/2014 still
+  show `"Cristiano Ronaldo (c)"` in `players.player_name`, meaning
+  `build_squad_schema.py`'s `clean_player_name()` only strips the literal
+  string `"(captain)"`, not the abbreviated `"(c)"` some tournament pages
+  use - so `is_captain` is silently wrong (False when it should be True) for
+  whichever historical rows use that convention. Checked directly whether
+  this reaches any of the 5 in-scope tournaments: **zero rows affected** -
+  it's a pre-2016 artifact only, so it did not corrupt today's matching
+  (`name_matching.py`'s `normalize_name()` strips *any* parenthetical
+  content generically, independent of this). Left unfixed for now - a real,
+  documented gap for a future session, not today's task.
+- **Silva disambiguation - a harder test than the original Transfermarkt
+  case, because these all share one nationality:** six distinct Portuguese
+  "Silva"s (Adrien, André, António, Bernardo, Rafa, Rui) appear across the 5
+  tournaments. Blocking by nationality alone cannot separate same-country
+  namesakes, so this exercises the name+DOB scoring specifically, not just
+  the blocking step. Every one that matched got a distinct, internally
+  consistent `sofifa_player_id` (Bernardo Silva: 218667, identically across
+  all 4 tournaments he appears in). Thiago Silva (Brazil) and David Silva
+  (Spain) were also correctly kept apart from all six Portuguese Silvas. The
+  two genuine misses in this group (António Silva - a 2022-breakout young
+  defender; Martín Silva - a lower-profile Uruguayan goalkeeper) read as
+  real sofifa coverage gaps rather than matcher failures, consistent with
+  the ~85% overall coverage rate.
+
+**What's still open:** the 153-row review queue needs a human pass (Liam's
+call on each) before any of those links are trusted; the 360 unmatched
+players are simply not linked (no guess made, per the no-fabrication rule) -
+some genuine sofifa coverage gaps are expected (lower-profile players,
+younger debutants not yet rated at that edition), but the review queue and
+unmatched set haven't been audited for a systematic pattern (e.g. one
+specific nationality or position underperforming) the way the World Cup 2002
+footnote bug was eventually traced to one specific cause.
+
+## Is v1 retrain-ready with the new data? Checked before assuming yes
+
+After the matcher above, the natural next question: does team_chemistry
+(built earlier) plus the newly-linked ratings mean v1 is ready for a retrain.
+Checked directly against the actual code rather than answered from
+impression - the honest answer is a two-track "partially", not a yes.
+
+**Shared prerequisite, found while checking, that blocks BOTH tracks:**
+`src/models/build_matrix.py`'s `FEATURE_COLUMNS` is currently 100%
+match-level (`neutral`, `importance`, form, goal trend, h2h) - neither
+`team_chemistry` nor `squad_age_depth` has ever been wired into the training
+matrix, despite both being built and verified. The reason: `matches.tournament`
+is a generic competition-*type* label ("FIFA World Cup", "UEFA Euro") shared
+across every edition/year, confirmed by direct query - there is currently no
+code linking a specific match row to a specific `tournaments.name`/`squad_id`
+(that would need deriving from the match's `date`, e.g. year + competition
+type -> `tournaments` row). Squad-level features were always going to need
+this glue; it just hadn't been needed yet because v1 never used any of them.
+
+**The two tracks, once that glue exists, are genuinely different -
+verified with real counts, not assumed identical:**
+
+Counted major-tournament (`FIFA World Cup/UEFA Euro`) match rows directly
+against `train_wdl.py`'s existing split boundaries (`VAL_START=2014-01-01`,
+`TEST_START=2016-01-01`):
+
+| | `team_chemistry` / `squad_age_depth` | ratings (`overall`/`potential`) |
+|---|---|---|
+| Tournament coverage | all 18 (1990-2024) | only 5 (Euro16/20/24, WC18/22) |
+| Real **training-set** rows | **530** (pre-2014 major-tournament matches) | **0** |
+| Test-set rows | 281 | 281 |
+
+The zero is not a guess: every tournament the ratings source covers
+(FIFA 15-24, Sept 2014 - Sept 2023) maps to a *tournament* dated 2016 or
+later (Euro 2016 onward) - so by construction, every match row with a
+non-null rating-derived feature falls in the **test** block under the
+existing single-cutoff split, never train or val. XGBoost cannot learn a
+real relationship for a column it never observes populated during training;
+with zero training examples it can only ever learn a meaningless
+missing-value default direction. `team_chemistry`/`squad_age_depth` don't
+have this problem - Wikipedia squad data goes back to 1990, giving 530 real
+pre-2014 training examples.
+
+**Consequence:** this is exactly why v1's own "Next" section (see the
+XGBoost v1 section above) already flagged walk-forward retraining as
+future work - that was framed as a staleness fix. This finding upgrades it
+specifically for ratings features: walk-forward retraining (or some other
+split redesign) is now a **hard prerequisite** for ratings features to
+contribute anything at all, not merely a nice-to-have improvement.
+
+**Recommendation logged** (Liam's call on sequencing, not yet started):
+two separate tracks rather than one retrain. Track 1 - build the match ->
+tournament-edition glue, wire in `team_chemistry`/`squad_age_depth` under
+the *existing* split, retrain; real signal on both sides of the split,
+directly tests what v1's tournament-level result (0.492 vs 0.495 baseline,
+effectively a tie) already flagged as the open question. Track 2 - walk-
+forward retraining, needed before ratings features are usable at all; a
+cheap non-XGBoost correlation check (mean squad `overall` vs actual outcome
+across the 281 covered tournament matches) was suggested as a first step, to
+confirm the signal is worth that larger engineering investment before
+building it.
+
 ## Environment: rating-acquisition tooling absent, CSV caching kept as default
 
 For the record, so a later session doesn't rediscover it: this environment has

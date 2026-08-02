@@ -1,0 +1,105 @@
+TO-DO / NEXT SESSION
+====================
+
+[ ] TRACK 1 — buildable right now: match-row -> tournament-edition glue,
+    then wire team_chemistry + squad_age_depth into the XGBoost matrix and
+    retrain. Both features have REAL train-set representation (530 pre-2014
+    major-tournament match rows — counted directly, see methodology.md),
+    unlike ratings (track 2). Steps:
+      - matches.tournament is a generic label ("FIFA World Cup", "UEFA Euro")
+        shared across every edition — there is NO existing code linking a
+        match row to a specific tournaments.name/squad_id. Build this first
+        (extract year from date, join to tournaments on competition+year).
+        This blocks ALL squad-level features from build_matrix.py, not just
+        ratings.
+      - add team_chemistry + squad_age_depth outputs to FEATURE_COLUMNS in
+        src/models/build_matrix.py (currently 100% match-level — neither
+        feature has ever been wired into the model despite both being built
+        and verified)
+      - rebuild the training matrix + retrain (src/models/train_wdl.py) under
+        the EXISTING split (train<2014 / val 2014-16 / test 2016+) — no split
+        changes needed for this track
+      - compare against the v1 tournament-level result (0.492 vs 0.495
+        baseline, effectively a tie) — this is the direct test of whether
+        squad quality closes that gap
+
+[ ] TRACK 2 — bigger lift, separate: ratings features (overall/potential)
+    are linked (see DONE THIS SESSION) but have ZERO training-set rows under
+    the current single 2014 cutoff — every rating-covered tournament
+    (Euro16/20/24, WC18/22) falls entirely in the test block (2016+), so
+    XGBoost has nothing to learn from those columns as-is. Needs
+    WALK-FORWARD RETRAINING first (train fresh before each backtest
+    tournament) — already flagged as a v1 "Next" item, now a hard
+    prerequisite specifically for ratings features, not just a staleness fix.
+      - SUGGESTED FIRST STEP before committing to that engineering lift: a
+        cheap non-XGBoost check — does mean squad `overall` actually
+        correlate with outcomes across the 281 covered tournament matches?
+        No split/model machinery needed, de-risks the investment.
+
+[ ] Human review pass on ratings_match_review_queue.csv (153 medium-
+    confidence player-rating links, gitignored/regenerable — see
+    methodology.md) — Liam's call on each, per the no-fabrication rule.
+
+[ ] Minor, low-priority, found as a side effect (not fixed): some historical
+    squad rows (pre-2016, so outside the ratings work's scope) still carry a
+    literal "(c)" in player_name instead of it being stripped into the
+    is_captain flag — build_squad_schema.py's clean_player_name() only
+    matches the literal string "(captain)", not the "(c)" abbreviation some
+    Wikipedia tournament pages use instead. Confirmed it does NOT affect any
+    of the 5 ratings-linked tournaments. Worth a fix whenever squad scraping
+    is next touched.
+
+RUNNING THE WEBAPP
+  - Now on PORT 5001 (port 5000 is taken by macOS AirPlay / stale process):
+        source venv/bin/activate
+        python3 -m webapp.app
+    then open http://127.0.0.1:5001/
+  - If a route 404s / a card loads forever: it's a STALE server process still
+    serving old code. Restart it. (The debug reloader doesn't always fire.)
+
+DONE THIS SESSION (player-rating matcher, Workstream B/C)
+  - link_player_ratings.py — blocking(fifa_version+nationality) -> score
+    (name_similarity + exact DOB) -> tier(high/medium/none) matcher. players
+    table extended (sofifa_player_id, rating_match_score, rating_match_tier
+    — also added to build_squad_schema.py's CREATE TABLE so a future squad
+    rebuild doesn't drop the columns, same precedent as transfermarkt_player_id)
+  - Coverage: 3,364 players across the 5 in-scope tournaments, 2,851 (84.7%)
+    auto-linked at high confidence, 153 to manual review, 360 unmatched
+    (no guess made). Full per-tournament table in methodology.md.
+  - Verified: Ronaldo (same sofifa_player_id across all 5 tournaments,
+    overall/club trajectory exactly matches real history) + Messi (Barca->PSG
+    move correctly reflected) + a HARDER Silva test than the original
+    Transfermarkt case — 6 distinct Portuguese Silvas, same nationality so
+    blocking alone couldn't separate them, all correctly and distinctly
+    matched by name+DOB scoring alone
+    - side-finding: South Korea/Korea Republic nationality-name mismatch
+      (only one found across all 5 tournaments' full country lists)
+    - side-finding: WC2018 era-match uses FIFA18 not FIFA19, since FIFA19
+      released AFTER the tournament ended (would be hindsight, not prediction)
+  - Analysed whether v1 XGBoost is retrain-ready with the new data — it's a
+    genuine two-track answer, not a simple yes (see TRACK 1 / TRACK 2 above
+    and methodology.md for the full numbers)
+  - methodology.md fully updated (matcher + the retrain analysis)
+
+DONE EARLIER SESSION (team chemistry + name-matching string layer)
+  - Workstream A: team_chemistry feature + /api/team-chemistry + frontend card
+  - Workstream C (string half): normalize_name + name_similarity (rapidfuzz)
+  - Fixed requirements.txt merged-line bug; corrected squad count ~380 -> 432
+  - Moved webapp to port 5001
+  - methodology.md + agents.md updated
+
+DONE EARLIER SESSION (ratings data acquisition, Workstream B)
+  - Kaggle auth: legacy kaggle.json in ~/.kaggle/ (the new KGAT_ token format
+    isn't supported by kaggle 1.7.4.5 or kagglehub 0.3.13 — both checked,
+    both latest on PyPI)
+  - Correction: real source is stefanoleone992, not bryanb (bryanb has only
+    one single-edition FIFA23 dataset)
+  - data/raw/fc24_male_players.csv (96MB, CC0-1.0) — turns out to be a
+    superset covering FIFA 15 through FC 24 in one file, not just "2023 +
+    fallback". See methodology.md for the full reasoning — the "2023
+    baseline" plan is no longer the right approach, each tournament gets its
+    own era-correct edition instead.
+  - build_ratings_schema.py — player_ratings table built and verified
+    (180,021 rows, editions 15-24). Messi/Ronaldo spot-checked directly in
+    the table; Silva ambiguity (270 candidates) reproduced from this source
+    too.
