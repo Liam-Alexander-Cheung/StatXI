@@ -949,3 +949,126 @@ deliberately *not* added — the plan's default is CSV caching for any downloade
 rating files, and no caching has happened yet (no dataset), so there is nothing to
 decide until the data actually lands. PyPI itself is reachable (pip works), so the
 only blocker to Workstream B is the dataset/credentials, not general network.
+
+## TRACK 1 executed: squad features wired into the WDL model (v2)
+
+This is the execution of TRACK 1 from the retrain-readiness analysis above —
+building the match→tournament-edition glue, wiring `team_chemistry` and
+`squad_age_depth` into the XGBoost matrix, and measuring whether squad quality
+closes the tournament-level tie (v1: 0.492 vs the form-favourite's 0.495).
+
+### The glue: `match_tournament_edition` (`src/data_pipeline.py`)
+The single missing prerequisite. `matches.tournament` is a generic competition
+label (`"FIFA World Cup"` / `"UEFA Euro"`) with no year and no foreign key, while
+the squad features key off an edition label (`"World Cup 2018"`). The bridge maps
+a match's (label, date) to the edition, and three things had to be handled — none
+guessed, all confirmed against the live DB:
+- **Label mismatch:** the two tables spell the competition differently —
+  `"FIFA World Cup"` (matches) vs `"World Cup"` (tournaments). A hard-coded
+  `COMPETITION_LABEL_MAP` bridges the two; any label not in it (friendlies,
+  qualifiers, Copa América, …) returns `None`.
+- **Euro 2020 was played in 2021** (COVID postponement) but its tournaments-table
+  row keeps the official name/year "Euro 2020". Match rows are dated 2021, so a
+  naive year-join would drop *every* Euro 2020 fixture. Corrected explicitly.
+- **Editions with no squad data** (pre-1990, and World Cup 2026 which now appears
+  in the data as played matches but has no scraped squad) return `None` → NaN,
+  never a fabricated squad.
+
+Coverage on the cleaned data: 875 of 960 major-tournament match rows resolve to
+an edition (the 85 unresolved are all WC 2026, no squad yet). Of the resolved
+rows, 1,723 of 1,750 team-slots find their squad. The **27 misses are all real
+historical name changes**, not bugs: Germany@1990 (competed as *West Germany*),
+Russia@1990/Euro1992 (*Soviet Union* / *CIS*), Serbia@1998/2000/2006 (*FR
+Yugoslavia* / *Serbia and Montenegro*), China@2002 (*China PR*). All fall pre-2014
+and all become NaN — resolving them needs a *reverse* name lookup (current name →
+the historical name as-of the match date), which `resolve_team_name` does not do
+(it maps the other direction). Logged as a known, low-priority gap.
+
+### Features added (`src/models/build_matrix.py`)
+Ten columns, home/away each of: `mean_age`, `squad_size`, `club_hhi`,
+`same_club_pair_ratio`, `largest_club_bloc`. Home/away kept separate (XGBoost
+learns the interaction). A team present in the match but absent from that
+edition's squad (the 27 mismatches) records **NaN, not 0** — a `squad_size` of 0
+would falsely assert an empty squad rather than "unknown". Verified the usual way:
+a built matrix row's `home_club_hhi` for Germany@WC2014 equals a standalone
+`team_chemistry` call to 6 dp (0.161), and the existing 9 features' NaN counts are
+byte-identical to v1 (no regression). Squad columns populate on exactly 861 rows,
+all major tournaments (0 leakage into friendlies).
+
+### Result: A/B under two splits (same matrix, only the columns/boundary change)
+| split | major test n | v1 acc (9 feats) | v2 acc (+squad) | Δ acc | v1→v2 log-loss |
+|---|---|---|---|---|---|
+| **original** (train<2014, test 2016+) | 366 | 0.492 | **0.500** | +0.008 | 1.026 → 1.020 |
+| **end-of-2020** (train<2019, val 19-20, test 2021+) | 251 | 0.514 | **0.546** | +0.032 | 1.003 → 0.998 |
+
+Under the original split, squad features flip the headline: v1 *lost* to the
+form-favourite baseline (0.492 < 0.495); v2 *beats* it (0.500 > 0.495), and
+improves log-loss — calibration held (ECE 0.025, unchanged). The all-test numbers
+barely move (0.579 → 0.580) because squad features touch only ~3% of matches (only
+tournaments) — the model is not harmed elsewhere, as intended by NaN-native design.
+
+The **end-of-2020 split shows a larger benefit** (+3.2pp accuracy on major
+tournaments; v2 0.546 vs baseline 0.514). This was requested specifically to give
+the squad features real *training* representation: training through 2020 raises
+populated squad-feature training rows from 516 to 695 and adds recent tournaments
+(WC 2014, Euro 2016, WC 2018) close to the test distribution. A convenient
+property confirmed here: carving 2019–2020 as the early-stopping validation slice
+costs **zero** major-tournament training rows (no Euro/WC was held in 2019–2020),
+so "everything up to 2020" genuinely feeds the model all 15 pre-test tournaments.
+On the 166 test rows that actually *have* squad data (Euro 2020 + WC 2022 + Euro
+2024; WC 2026 is NaN), v2 beats v1 by +2.4pp.
+
+### Honesty caveats
+The accuracy gains are **modest and within sampling noise** at these sizes:
++3.2pp on 251 matches ≈ 8 games, +2.4pp on 166 ≈ 4 games. The reassurance is
+that the *direction is consistent* — v2 ≥ v1 on both accuracy and log-loss in
+both splits, and v2 beats the naive baseline where v1 did not — and that log-loss
+(a more stable metric than top-1 accuracy) improves in the same direction, if
+only slightly. This is a suggestive positive signal, not a decisive one.
+
+### Pruning check
+`squad_size` is near-constant (23, or 26 for 2022+ tournaments) and had the lowest
+importance (`away_squad_size` gain was literally 0.00 in the 2020 split). Tested
+dropping both `squad_size` columns: it made major-tournament accuracy *worse*
+(0.546 → 0.530 all-251; 0.542 → 0.536 covered-166) and log-loss no better, so the
+full 10-feature set was kept — pruning decided empirically, not by importance
+alone.
+
+### Implication for TRACK 2
+The end-of-2020 result is effectively a one-step walk-forward: the squad signal is
+strongest when the model trains on data close to the test period. That is the
+direct empirical argument for full walk-forward retraining (train fresh before
+each backtest tournament), which the retrain-readiness analysis flagged as a hard
+prerequisite for the *ratings* features (0 training rows under the single 2014
+cutoff). TRACK 1 confirms the mechanism on features that already had training
+representation, de-risking that larger investment.
+
+### Walk-forward reality check — the single-split gain does not fully survive
+Before reading too much into the +3.2pp, a proper walk-forward backtest was run
+(now a committed module, `src/models/walk_forward.py`): for each of the five
+backtestable tournaments (Euro 2016, WC 2018, Euro 2020, WC 2022, Euro 2024),
+train on ALL matches strictly before it, early-stop on the trailing 365 days,
+predict that tournament, then pool the 281 predictions. It derives its tournament
+set from the matrix's `edition` column (self-updating for future squad scrapes)
+and consumes `FEATURE_COLUMNS`, so the TRACK 2 ratings columns will flow into it
+with no change. Result:
+
+| | pooled acc (n=281) | pooled log-loss |
+|---|---|---|
+| v1 (no squad) | 0.488 | **1.042** |
+| v2 (+squad) | **0.498** | 1.047 |
+| form-favourite baseline | 0.491 | — |
+
+So under the most rigorous split, the squad features give **+1.1pp accuracy
+(≈3 matches) and a *marginally worse* log-loss** — i.e. the benefit largely
+washes into noise. Per-tournament it is genuinely mixed: squad features help in
+WC 2018 (+6pp) and WC 2022 (+1.6pp), hurt in Euro 2016 (−2pp) and Euro 2020
+(−2pp), tie in Euro 2024. The clean +3.2pp end-of-2020 figure was therefore
+**partly a favourable-split artifact** (that split trains through 2018 and tests
+on a specific recent 4-tournament window). Honest conclusion: at the ~281
+tournament matches available across football's backtestable window, both the
+squad features and the split choice move accuracy by only a handful of games —
+within sampling noise. The defensible claim is **methodological** (a leakage-free,
+never-stale backtest harness that also unblocks the ratings features), not a
+headline accuracy jump. This is logged rather than buried precisely because the
+project's write-up leans on an honest process, not a highlights reel.

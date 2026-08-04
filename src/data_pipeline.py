@@ -1,4 +1,7 @@
 from pathlib import Path
+# Optional[str] is a type hint meaning "either a str or None" — used below to
+# signal that a match may legitimately have no linkable tournament edition.
+from typing import Optional
 # import pandas (open-source software library for data analysis and data manipulation).
 import pandas as pd
 
@@ -14,6 +17,16 @@ NON_FIFA_TOURNAMENTS = {
     "CONIFA South America Football Cup", "CONIFA World Cup qualification",
     "CONIFA World Football Cup", "CONIFA World Football Cup qualification",
     "ConIFA Challenger Cup", "Viva World Cup",
+}
+
+# The matches table and the tournaments table name the same competition
+# differently: a match row's `tournament` column says "FIFA World Cup", while
+# the tournaments table's `competition` column says "World Cup". This map
+# bridges the two. Only these two competitions have scraped squad data, so any
+# match whose tournament label is NOT a key here has no linkable squad edition.
+COMPETITION_LABEL_MAP = {
+    "FIFA World Cup": "World Cup",
+    "UEFA Euro": "Euro",
 }
 
 
@@ -65,6 +78,64 @@ def load_squads() -> pd.DataFrame:
     )
     conn.close()
     return df
+
+
+def load_tournament_editions() -> dict:
+    """
+    Load a lookup of {(competition, year): tournament_name} from the
+    tournaments table — e.g. {("World Cup", 2018): "World Cup 2018"}.
+
+    This is the key that lets a match row — which only knows a generic
+    competition label ("FIFA World Cup") plus a date — be tied to the
+    specific tournament *edition* the squad features are scoped to. The
+    caller builds this dict once and passes it into match_tournament_edition
+    for every match row, so we hit the database only once, not per-row.
+    """
+    conn = get_connection()
+    df = pd.read_sql("SELECT competition, year, name FROM tournaments", conn)
+    conn.close()
+    # A dict comprehension: one entry per tournament edition. int() guards
+    # against the year arriving as a numpy int / str from the DB driver.
+    return {
+        (row["competition"], int(row["year"])): row["name"]
+        for _, row in df.iterrows()
+    }
+
+
+def match_tournament_edition(
+    tournament_label: str, match_date: pd.Timestamp, editions: dict
+) -> Optional[str]:
+    """
+    Map one match row's generic tournament label + date to the specific
+    tournament-edition name the squad features use (e.g. "World Cup 2018"),
+    or None when the match has no linkable squad edition.
+
+    Returns None (never a guess — honouring the never-fabricate rule) for:
+      - any competition without scraped squads (friendlies, qualifiers,
+        Copa América, ...): its label is not in COMPETITION_LABEL_MAP
+      - editions with no squad data: pre-1990 tournaments (before the scrape
+        range) and not-yet-played ones (e.g. World Cup 2026) — the (competition,
+        year) key simply isn't present in `editions`.
+    """
+    # Step 1: translate the match's competition label to the tournaments-table
+    # spelling. .get returns None for anything that isn't a major tournament.
+    competition = COMPETITION_LABEL_MAP.get(tournament_label)
+    if competition is None:
+        return None
+
+    year = match_date.year
+
+    # Step 2: Euro 2020 edge case. That tournament was postponed by COVID and
+    # actually played in mid-2021, but its tournaments-table row keeps the
+    # official name/year "Euro 2020". Match rows are dated 2021, so without this
+    # correction every Euro 2020 fixture would fail to find its edition.
+    if competition == "Euro" and year == 2021:
+        year = 2020
+
+    # Step 3: look up the edition. .get returns None when no such edition exists
+    # (e.g. a 1986 World Cup match, before the 1990 squad-scrape range).
+    return editions.get((competition, year))
+
 
 def resolve_team_name(name: str, date: pd.Timestamp, former_names: pd.DataFrame) -> str:
     """

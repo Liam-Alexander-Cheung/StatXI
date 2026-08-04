@@ -1,27 +1,32 @@
 TO-DO / NEXT SESSION
 ====================
 
-[ ] TRACK 1 — buildable right now: match-row -> tournament-edition glue,
-    then wire team_chemistry + squad_age_depth into the XGBoost matrix and
-    retrain. Both features have REAL train-set representation (530 pre-2014
-    major-tournament match rows — counted directly, see methodology.md),
-    unlike ratings (track 2). Steps:
-      - matches.tournament is a generic label ("FIFA World Cup", "UEFA Euro")
-        shared across every edition — there is NO existing code linking a
-        match row to a specific tournaments.name/squad_id. Build this first
-        (extract year from date, join to tournaments on competition+year).
-        This blocks ALL squad-level features from build_matrix.py, not just
-        ratings.
-      - add team_chemistry + squad_age_depth outputs to FEATURE_COLUMNS in
-        src/models/build_matrix.py (currently 100% match-level — neither
-        feature has ever been wired into the model despite both being built
-        and verified)
-      - rebuild the training matrix + retrain (src/models/train_wdl.py) under
-        the EXISTING split (train<2014 / val 2014-16 / test 2016+) — no split
-        changes needed for this track
-      - compare against the v1 tournament-level result (0.492 vs 0.495
-        baseline, effectively a tie) — this is the direct test of whether
-        squad quality closes that gap
+[x] TRACK 1 — DONE (see "DONE THIS SESSION" below and methodology.md).
+    Glue built (match_tournament_edition), team_chemistry + squad_age_depth
+    wired into build_matrix.py (10 cols), retrained + evaluated. RESULT:
+    major-tournament acc 0.492 -> 0.500 under the original split (now BEATS
+    the 0.495 form-favourite baseline, where v1 lost to it); +3.2pp under an
+    end-of-2020 split. Modest, within noise, but direction is consistent on
+    both accuracy AND log-loss. Full numbers + caveats in methodology.md.
+
+[x] PROMOTED walk-forward harness -> src/models/walk_forward.py (committed,
+    reproduces the prototype exactly). Per-tournament + pooled report; derives
+    the backtest set from the data (WC/Euro editions >= 2016 that have a squad
+    edition), so a future squad scrape is picked up automatically. Consumes
+    FEATURE_COLUMNS, so TRACK 2 ratings columns will flow in with no change here.
+    Run: python -m src.models.walk_forward
+    RESULT (n=281): model acc 0.498 vs form-fav 0.491 (+0.7pp); log-loss 1.047
+    beats no-skill base-rate 1.099 (-0.052) and brier 0.631 vs 0.669 — real
+    calibrated skill, accuracy edge marginal. Under this rigorous split the
+    squad-feature gain is within noise (the end-of-2020 +3.2pp was partly a
+    favourable-split artifact; see methodology.md "Walk-forward reality check").
+    NOTE: train_wdl.py still uses the original single split; saved wdl_xgb.json
+    is the v2 model under THAT split. No production-split change made.
+
+[ ] NEXT (TRACK 2, now unblocked by the harness): the cheap non-XGBoost check —
+    does mean squad `overall` correlate with outcomes across the 281 covered
+    tournament matches? If yes, add ratings cols to FEATURE_COLUMNS and re-run
+    walk_forward (they finally get training rows, unlike under a single cutoff).
 
 [ ] TRACK 2 — bigger lift, separate: ratings features (overall/potential)
     are linked (see DONE THIS SESSION) but have ZERO training-set rows under
@@ -57,7 +62,33 @@ RUNNING THE WEBAPP
   - If a route 404s / a card loads forever: it's a STALE server process still
     serving old code. Restart it. (The debug reloader doesn't always fire.)
 
-DONE THIS SESSION (player-rating matcher, Workstream B/C)
+DONE THIS SESSION (TRACK 1 — squad features wired into the WDL model, v2)
+  - src/data_pipeline.py: load_tournament_editions() + match_tournament_edition()
+    — the match-row -> tournament-edition glue. Handles the label mismatch
+    ("FIFA World Cup" vs "World Cup"), the Euro-2020-played-in-2021 fix, and
+    returns None (-> NaN, never fabricated) for non-major / pre-1990 / WC2026.
+    6/6 unit checks pass; 875/960 major rows resolve, 1723/1750 team-slots hit
+    a squad (27 misses = real name changes: West Germany, Soviet Union/CIS,
+    FR Yugoslavia, China PR — all pre-2014, all correctly NaN).
+  - src/models/build_matrix.py: 10 squad columns added to FEATURE_COLUMNS
+    (home/away x mean_age, squad_size, club_hhi, same_club_pair_ratio,
+    largest_club_bloc). Leakage guard re-verified (Germany@WC2014 club_hhi
+    0.161 matrix==standalone to 6dp); existing 9 features' NaN counts
+    unchanged; squad cols populate on exactly 861 rows, all major (0 leakage).
+  - train_wdl.py / evaluate_wdl.py needed NO code change (inherit FEATURE_COLUMNS);
+    v2 model retrained + saved. Official (original split): all-test acc 0.580,
+    ECE 0.025; MAJOR acc 0.500 vs baseline 0.495 (v1 was 0.492 — now wins).
+  - Ran A/B under two splits + a pruning test (scratchpad feature_ablation.py,
+    not committed). end-of-2020 split gave the biggest lift (+3.2pp major).
+    Dropping squad_size hurt, so all 10 kept. Full write-up in methodology.md.
+  - Ran a full WALK-FORWARD backtest (scratchpad walk_forward.py, not committed):
+    the +3.2pp does NOT survive rigorous per-tournament retraining — pooled v2
+    0.498 vs v1 0.488 (+1.1pp, within noise), log-loss slightly worse. Squad
+    features are marginal; walk-forward's value is methodological + unblocking
+    TRACK 2. Documented honestly in methodology.md ("Walk-forward reality check").
+  - NEXT: promote the walk-forward harness to a committed module (see above).
+
+DONE PREVIOUS SESSION (player-rating matcher, Workstream B/C)
   - link_player_ratings.py — blocking(fifa_version+nationality) -> score
     (name_similarity + exact DOB) -> tier(high/medium/none) matcher. players
     table extended (sofifa_player_id, rating_match_score, rating_match_tier

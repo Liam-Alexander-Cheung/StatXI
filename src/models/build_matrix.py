@@ -30,8 +30,17 @@ from src.data_pipeline import (
     load_raw_matches,
     clean_matches,
     importance_weight,
+    load_squads,
+    load_tournament_editions,
+    match_tournament_edition,
 )
-from src.features import rolling_form, goal_trend, head_to_head_record
+from src.features import (
+    rolling_form,
+    goal_trend,
+    head_to_head_record,
+    squad_age_depth,
+    team_chemistry,
+)
 
 # Where the cached matrix lands. data/processed/ is gitignored (regenerable
 # derived data — same policy as data/raw/ and the .db file).
@@ -55,14 +64,75 @@ FEATURE_COLUMNS = [
     "away_gs",       # goal_trend(away).goals_scored
     "away_gc",       # goal_trend(away).goals_conceded
     "h2h",           # head_to_head_record(home vs away)   (NaN if never met)
+    # --- v2 squad-quality features (NaN for ~99% of matches: only the ~875
+    #     World Cup / Euro fixtures with a scraped squad edition get real
+    #     values; XGBoost handles the NaNs natively). See match_tournament_edition
+    #     for how a match row is tied to its tournament edition. Candidate set —
+    #     any column that doesn't earn its keep on held-out log-loss is pruned. ---
+    "home_mean_age",              # squad_age_depth(home).mean_age
+    "away_mean_age",              # squad_age_depth(away).mean_age
+    "home_squad_size",            # squad_age_depth(home).squad_size (depth: ~23/26)
+    "away_squad_size",            # squad_age_depth(away).squad_size
+    "home_club_hhi",              # team_chemistry(home).club_hhi (club concentration)
+    "away_club_hhi",              # team_chemistry(away).club_hhi
+    "home_same_club_pair_ratio",  # team_chemistry(home).same_club_pair_ratio
+    "away_same_club_pair_ratio",  # team_chemistry(away).same_club_pair_ratio
+    "home_largest_club_bloc",     # team_chemistry(home).largest_club_bloc
+    "away_largest_club_bloc",     # team_chemistry(away).largest_club_bloc
 ]
 
 # Columns kept for traceability / verification / later scoreline work, but
 # explicitly NOT features. home_score/away_score are the label's raw source.
-METADATA_COLUMNS = ["date", "home_team", "away_team", "tournament",
+# `edition` is the resolved tournament-edition label (e.g. "World Cup 2014") or
+# blank — kept so a squad-feature value in a row can be traced back to the exact
+# squad it came from during verification.
+METADATA_COLUMNS = ["date", "home_team", "away_team", "tournament", "edition",
                     "home_score", "away_score"]
 
 LABEL_COLUMN = "result"  # "H" (home win) / "D" (draw) / "A" (away win)
+
+# The five squad-quality scalars we keep, and the all-NaN placeholder used when a
+# squad can't be located. Recording NaN (not 0) is deliberate: a squad_size of 0
+# or largest_club_bloc of 0 would *falsely assert* an empty squad, when the truth
+# is "unknown" (no edition, or a team-name mismatch like Germany@1990 = the old
+# "West Germany" squad row). NaN routes it into XGBoost's missing-value handling,
+# honouring the project's never-fabricate-data rule.
+_SQUAD_FIELDS = ("mean_age", "squad_size", "club_hhi",
+                 "same_club_pair_ratio", "largest_club_bloc")
+_SQUAD_NAN = {field: float("nan") for field in _SQUAD_FIELDS}
+
+
+def _squad_feature_row(squads: pd.DataFrame, team: str, edition: str | None) -> dict:
+    """
+    The five squad-quality scalars for one team at one tournament edition.
+
+    Returns all-NaN (never a fabricated 0) when the match has no linkable
+    edition (`edition is None`) or the team name isn't present in that edition's
+    squad — the latter catches the ~27 historical name mismatches (Germany@1990,
+    Russia/Soviet Union, Serbia/FR Yugoslavia, China/China PR).
+    """
+    if edition is None:
+        return dict(_SQUAD_NAN)
+
+    # Is this exact team name present in that edition's squad at all? If not,
+    # we must NOT fall through to squad_age_depth/team_chemistry — they'd return
+    # squad_size=0 / largest_club_bloc=0, i.e. fabricated zeros. .any() is a
+    # cheap membership test before the heavier per-position / club-pair maths.
+    present = (
+        (squads["team"] == team) & (squads["tournament_name"] == edition)
+    ).any()
+    if not present:
+        return dict(_SQUAD_NAN)
+
+    ad = squad_age_depth(squads, team, edition)      # age / depth signal
+    tc = team_chemistry(squads, team, edition)       # club-cohesion signal
+    return {
+        "mean_age": ad["mean_age"],
+        "squad_size": ad["squad_size"],
+        "club_hhi": tc["club_hhi"],
+        "same_club_pair_ratio": tc["same_club_pair_ratio"],
+        "largest_club_bloc": tc["largest_club_bloc"],
+    }
 
 
 def _result(home_score: float, away_score: float) -> str:
@@ -74,7 +144,12 @@ def _result(home_score: float, away_score: float) -> str:
     return "A"
 
 
-def build_training_matrix(matches: pd.DataFrame, limit: int | None = None) -> pd.DataFrame:
+def build_training_matrix(
+    matches: pd.DataFrame,
+    limit: int | None = None,
+    squads: pd.DataFrame | None = None,
+    editions: dict | None = None,
+) -> pd.DataFrame:
     """
     Build the (features + label) table from cleaned match data.
 
@@ -84,8 +159,19 @@ def build_training_matrix(matches: pd.DataFrame, limit: int | None = None) -> pd
     `limit`: if set, only process the most recent N matches — used for fast
     correctness checks before paying the full ~10-minute build.
 
+    `squads` / `editions`: the squad table and tournament-edition lookup used by
+    the v2 squad-quality features. Loaded once here if not supplied (tests can
+    inject them). Loading happens outside the row loop — one DB read, not 32k.
+
     Returns a DataFrame with METADATA_COLUMNS + FEATURE_COLUMNS + LABEL_COLUMN.
     """
+    # Load the squad-feature inputs once. Both are small (10k player rows / 18
+    # editions) and constant across the whole build, so they live outside the loop.
+    if squads is None:
+        squads = load_squads()
+    if editions is None:
+        editions = load_tournament_editions()
+
     # Sort ascending by date so "progress" is chronological and reproducible.
     # reset_index gives clean 0..N-1 row numbers for the progress print.
     matches = matches.sort_values("date").reset_index(drop=True)
@@ -111,12 +197,20 @@ def build_training_matrix(matches: pd.DataFrame, limit: int | None = None) -> pd
         home_gt = goal_trend(matches, home, d)
         away_gt = goal_trend(matches, away, d)
 
+        # Tie this match to its specific tournament edition (or None), then pull
+        # the squad-quality scalars for each side. NaN for non-tournament matches
+        # and unresolved name mismatches — see _squad_feature_row.
+        edition = match_tournament_edition(row["tournament"], d, editions)
+        home_sq = _squad_feature_row(squads, home, edition)
+        away_sq = _squad_feature_row(squads, away, edition)
+
         records.append({
             # --- metadata (not features) ---
             "date": d,
             "home_team": home,
             "away_team": away,
             "tournament": row["tournament"],
+            "edition": edition,          # resolved edition label, or None
             "home_score": row["home_score"],
             "away_score": row["away_score"],
             # --- features ---
@@ -129,6 +223,18 @@ def build_training_matrix(matches: pd.DataFrame, limit: int | None = None) -> pd
             "away_gs": away_gt["goals_scored"],
             "away_gc": away_gt["goals_conceded"],
             "h2h": head_to_head_record(matches, home, away, d),
+            # --- v2 squad-quality features (home/away kept separate; XGBoost
+            #     learns the home-vs-away interaction itself) ---
+            "home_mean_age": home_sq["mean_age"],
+            "away_mean_age": away_sq["mean_age"],
+            "home_squad_size": home_sq["squad_size"],
+            "away_squad_size": away_sq["squad_size"],
+            "home_club_hhi": home_sq["club_hhi"],
+            "away_club_hhi": away_sq["club_hhi"],
+            "home_same_club_pair_ratio": home_sq["same_club_pair_ratio"],
+            "away_same_club_pair_ratio": away_sq["same_club_pair_ratio"],
+            "home_largest_club_bloc": home_sq["largest_club_bloc"],
+            "away_largest_club_bloc": away_sq["largest_club_bloc"],
             # --- label ---
             "result": _result(row["home_score"], row["away_score"]),
         })
