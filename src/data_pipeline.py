@@ -29,6 +29,52 @@ COMPETITION_LABEL_MAP = {
     "UEFA Euro": "Euro",
 }
 
+# Era-correct FIFA/FC edition for each ratings-covered tournament — the closest
+# game snapshot dated BEFORE the tournament, so a rating is a genuine pre-match
+# prediction, never hindsight. Mirrors link_player_ratings.py's map (the source
+# of truth for how ratings were linked); see methodology "Rating data acquired".
+# Only these 5 tournaments fall inside the ratings source's window (FIFA 15-24),
+# so only they can carry a rating feature; every other match is NaN.
+TOURNAMENT_TO_FIFA_VERSION = {
+    "Euro 2016": 16,
+    "World Cup 2018": 18,   # FIFA 19 released after the tournament — excluded
+    "Euro 2020": 21,        # postponed to 2021; FIFA 21 was the current edition
+    "World Cup 2022": 23,
+    "Euro 2024": 24,        # FC 24
+}
+
+# Approximate start date of each in-scope tournament. Used only to timestamp when
+# a player first became a *known* international for a country (the earliest squad
+# they appear in) — the cutoff that keeps the pool-rating feature leakage-free
+# (a match may only use squads known on or before its own date). Kept conservative
+# (tournament start, not the ~3-week-earlier squad announcement).
+TOURNAMENT_START_DATE = {
+    "Euro 2016": pd.Timestamp("2016-06-10"),
+    "World Cup 2018": pd.Timestamp("2018-06-14"),
+    "Euro 2020": pd.Timestamp("2021-06-11"),   # COVID-postponed to 2021
+    "World Cup 2022": pd.Timestamp("2022-11-20"),
+    "Euro 2024": pd.Timestamp("2024-06-14"),
+}
+
+
+def fifa_edition_for_date(date: pd.Timestamp) -> Optional[int]:
+    """
+    The era-correct FIFA/FC edition for a match date: the latest edition released
+    on or before it (each edition ships in late September, e.g. FIFA 16 = Sep 2015,
+    FC 24 = Sep 2023). So a match is only ever rated against a game that already
+    existed — never hindsight.
+
+    Returns None before FIFA 15 (Sep 2014, the start of the ratings window) and
+    clamps to 24 afterwards (FC 24 is the latest edition we hold — a 2025+ match
+    falls back to it, stale but not leaked). Reproduces TOURNAMENT_TO_FIFA_VERSION
+    exactly for the five in-scope tournaments (a nice consistency check).
+    """
+    # Editions release in September, so from September a year's new edition is out.
+    version = (date.year - 1999) if date.month >= 9 else (date.year - 2000)
+    if version < 15:
+        return None
+    return min(version, 24)
+
 
 from src.database import get_connection
 
@@ -135,6 +181,91 @@ def match_tournament_edition(
     # Step 3: look up the edition. .get returns None when no such edition exists
     # (e.g. a 1986 World Cup match, before the 1990 squad-scrape range).
     return editions.get((competition, year))
+
+
+def load_squad_ratings() -> pd.DataFrame:
+    """
+    One row per rated squad player: team, tournament_name, overall, potential —
+    each taken at the tournament's era-correct FIFA edition. Same flat shape as
+    load_squads, so a feature function can filter it by (team, tournament_name).
+
+    Only the 5 ratings-covered tournaments appear, and only players that were
+    linked to a rating row (players.sofifa_player_id populated by
+    link_player_ratings.py) contribute. A squad player with no linked rating is
+    simply absent — the feature function then works from whoever WAS rated.
+    """
+    conn = get_connection()
+    # linked squad players for the 5 in-scope tournaments (one row per appearance)
+    players = pd.read_sql(
+        """
+        SELECT t.name AS tournament_name, s.country AS team, p.sofifa_player_id
+        FROM players p
+        JOIN squads s ON p.squad_id = s.squad_id
+        JOIN tournaments t ON s.tournament_id = t.tournament_id
+        WHERE p.sofifa_player_id IS NOT NULL
+          AND t.name IN ({})
+        """.format(",".join("?" * len(TOURNAMENT_TO_FIFA_VERSION))),
+        conn, params=list(TOURNAMENT_TO_FIFA_VERSION),
+    )
+    # every edition present, so a single query pulls all the ratings we need
+    ratings = pd.read_sql(
+        "SELECT sofifa_player_id, fifa_version, overall, potential FROM player_ratings",
+        conn,
+    )
+    conn.close()
+
+    # tag each appearance with its tournament's era-correct edition, then merge
+    # THAT exact (player, version) rating — so a WC 2018 player gets his FIFA 18
+    # overall, not a later hindsight rating.
+    players["fifa_version"] = players["tournament_name"].map(TOURNAMENT_TO_FIFA_VERSION)
+    merged = players.merge(ratings, on=["sofifa_player_id", "fifa_version"], how="left")
+    return merged[["team", "tournament_name", "overall", "potential"]]
+
+
+def load_team_pool_ratings() -> pd.DataFrame:
+    """
+    Build the country player-POOL rating table that lets a rating be assigned to
+    ANY international match in the FIFA-era window, not just the 5 tournaments with
+    a scraped squad. One row per (country, player, FIFA edition):
+        team, sofifa_player_id, first_seen, fifa_version, overall
+
+    `first_seen` is the start date of the earliest tournament in which that player
+    appeared for that country — i.e. the first moment we can honestly say "this
+    player is one of C's internationals". A match may then use only the players
+    whose `first_seen` is on or before its own date, which is what keeps the
+    downstream feature leakage-free (no crediting a country with a player known
+    only from a *later* squad).
+
+    Reuses the existing 2,851 player→rating links; no new matching. A player's
+    rating at every edition (15–24) is carried, so their pre/post-tournament form
+    is available for matches played years either side of the squad we know them from.
+    """
+    conn = get_connection()
+    # every linked appearance, tagged with the tournament it came from
+    appearances = pd.read_sql(
+        """
+        SELECT s.country AS team, p.sofifa_player_id, t.name AS tournament_name
+        FROM players p
+        JOIN squads s ON p.squad_id = s.squad_id
+        JOIN tournaments t ON s.tournament_id = t.tournament_id
+        WHERE p.sofifa_player_id IS NOT NULL
+          AND t.name IN ({})
+        """.format(",".join("?" * len(TOURNAMENT_START_DATE))),
+        conn, params=list(TOURNAMENT_START_DATE),
+    )
+    ratings = pd.read_sql(
+        "SELECT sofifa_player_id, fifa_version, overall FROM player_ratings", conn)
+    conn.close()
+
+    # first_seen = earliest squad date per (country, player)
+    appearances["squad_date"] = appearances["tournament_name"].map(TOURNAMENT_START_DATE)
+    first_seen = (appearances.groupby(["team", "sofifa_player_id"])["squad_date"]
+                  .min().reset_index().rename(columns={"squad_date": "first_seen"}))
+
+    # attach every edition's overall for each player (inner join drops editions a
+    # player has no rating in — e.g. before they existed in the game)
+    pool = first_seen.merge(ratings, on="sofifa_player_id", how="inner")
+    return pool[["team", "sofifa_player_id", "first_seen", "fifa_version", "overall"]]
 
 
 def resolve_team_name(name: str, date: pd.Timestamp, former_names: pd.DataFrame) -> str:

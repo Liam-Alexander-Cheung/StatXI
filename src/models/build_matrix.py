@@ -31,6 +31,7 @@ from src.data_pipeline import (
     clean_matches,
     importance_weight,
     load_squads,
+    load_team_pool_ratings,
     load_tournament_editions,
     match_tournament_edition,
 )
@@ -40,6 +41,8 @@ from src.features import (
     head_to_head_record,
     squad_age_depth,
     team_chemistry,
+    build_pool_index,
+    team_pool_rating,
 )
 
 # Where the cached matrix lands. data/processed/ is gitignored (regenerable
@@ -79,6 +82,11 @@ FEATURE_COLUMNS = [
     "away_same_club_pair_ratio",  # team_chemistry(away).same_club_pair_ratio
     "home_largest_club_bloc",     # team_chemistry(home).largest_club_bloc
     "away_largest_club_bloc",     # team_chemistry(away).largest_club_bloc
+    # --- v3 rating feature (TRACK 2). rating_gap = home_pool_rating -
+    #     away_pool_rating, the RELATIVE form (beat two absolute columns 0.509 vs
+    #     0.459). Pool ratings extend coverage from the 5 scraped tournaments to
+    #     ~1,081 leakage-free international matches (2016+); NaN otherwise. ---
+    "rating_gap",                 # home_pool_rating - away_pool_rating
 ]
 
 # Columns kept for traceability / verification / later scoreline work, but
@@ -87,6 +95,7 @@ FEATURE_COLUMNS = [
 # blank — kept so a squad-feature value in a row can be traced back to the exact
 # squad it came from during verification.
 METADATA_COLUMNS = ["date", "home_team", "away_team", "tournament", "edition",
+                    "home_pool_rating", "away_pool_rating",  # absolute ratings, kept for traceability
                     "home_score", "away_score"]
 
 LABEL_COLUMN = "result"  # "H" (home win) / "D" (draw) / "A" (away win)
@@ -149,6 +158,7 @@ def build_training_matrix(
     limit: int | None = None,
     squads: pd.DataFrame | None = None,
     editions: dict | None = None,
+    pool_index: dict | None = None,
 ) -> pd.DataFrame:
     """
     Build the (features + label) table from cleaned match data.
@@ -159,18 +169,21 @@ def build_training_matrix(
     `limit`: if set, only process the most recent N matches — used for fast
     correctness checks before paying the full ~10-minute build.
 
-    `squads` / `editions`: the squad table and tournament-edition lookup used by
-    the v2 squad-quality features. Loaded once here if not supplied (tests can
-    inject them). Loading happens outside the row loop — one DB read, not 32k.
+    `squads` / `editions` / `pool_index`: the squad table, tournament-edition
+    lookup, and country pool-rating index used by the squad + rating features.
+    Loaded once here if not supplied (tests can inject them). Loading happens
+    outside the row loop — one DB read, not 32k.
 
     Returns a DataFrame with METADATA_COLUMNS + FEATURE_COLUMNS + LABEL_COLUMN.
     """
-    # Load the squad-feature inputs once. Both are small (10k player rows / 18
-    # editions) and constant across the whole build, so they live outside the loop.
+    # Load the squad-feature inputs once. All are small and constant across the
+    # whole build, so they live outside the loop.
     if squads is None:
         squads = load_squads()
     if editions is None:
         editions = load_tournament_editions()
+    if pool_index is None:
+        pool_index = build_pool_index(load_team_pool_ratings())
 
     # Sort ascending by date so "progress" is chronological and reproducible.
     # reset_index gives clean 0..N-1 row numbers for the progress print.
@@ -204,6 +217,13 @@ def build_training_matrix(
         home_sq = _squad_feature_row(squads, home, edition)
         away_sq = _squad_feature_row(squads, away, edition)
 
+        # Date-scoped pool ratings — apply to ANY covered match, not just the 5
+        # tournaments. rating_gap is the relative form (beat absolute columns).
+        # NaN - NaN stays NaN, so a match needs BOTH teams rated to get a gap.
+        home_pool = team_pool_rating(pool_index, home, d)
+        away_pool = team_pool_rating(pool_index, away, d)
+        rating_gap = home_pool - away_pool
+
         records.append({
             # --- metadata (not features) ---
             "date": d,
@@ -211,6 +231,8 @@ def build_training_matrix(
             "away_team": away,
             "tournament": row["tournament"],
             "edition": edition,          # resolved edition label, or None
+            "home_pool_rating": home_pool,   # absolute ratings (traceability, not fed to model)
+            "away_pool_rating": away_pool,
             "home_score": row["home_score"],
             "away_score": row["away_score"],
             # --- features ---
@@ -235,6 +257,8 @@ def build_training_matrix(
             "away_same_club_pair_ratio": away_sq["same_club_pair_ratio"],
             "home_largest_club_bloc": home_sq["largest_club_bloc"],
             "away_largest_club_bloc": away_sq["largest_club_bloc"],
+            # --- v3 rating feature (TRACK 2): relative pool-rating gap ---
+            "rating_gap": rating_gap,
             # --- label ---
             "result": _result(row["home_score"], row["away_score"]),
         })

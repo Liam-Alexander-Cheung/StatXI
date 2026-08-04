@@ -1072,3 +1072,118 @@ within sampling noise. The defensible claim is **methodological** (a leakage-fre
 never-stale backtest harness that also unblocks the ratings features), not a
 headline accuracy jump. This is logged rather than buried precisely because the
 project's write-up leans on an honest process, not a highlights reel.
+
+## TRACK 2 de-risked: mean squad `overall` strongly predicts outcomes
+
+Before paying the walk-forward engineering to wire FIFA/FC ratings into the model,
+the cheap non-model check the ToDo flagged (`scratchpad/ratings_correlation.py`):
+does a squad's **mean `overall`** actually relate to results? For each of the 5
+ratings-covered tournaments, each squad's mean `overall` was computed from its
+linked players at the era-correct edition (Euro 2016→FIFA16, WC 2018→FIFA18, Euro
+2020→FIFA21, WC 2022→FIFA23, Euro 2024→FC24 — the same map the linker used), then
+compared against actual outcomes. No model, no split — a pure descriptive check,
+and leakage-free by construction (each rating snapshot predates its tournament).
+
+**Sanity first:** the means rank exactly as football knowledge demands — strongest
+squads Spain/Germany WC 2018, Brazil WC 2018/2022, France Euro 2020 (~84);
+weakest Panama, Iceland, Qatar, Saudi Arabia, Finland (~67). A ~17-point spread.
+
+**The signal is strong and unambiguous** (256 of 281 matches had ≥11 rated players
+both sides; the 25 dropped were low-coverage minnow squads):
+- correlation of rating gap with home result: **Pearson r=+0.42, Spearman ρ=+0.44**,
+  both p≈10⁻¹² — not marginal.
+- **the higher-rated team wins 75% of decisive (non-draw) matches** (n=188).
+- "predict the higher mean `overall`" scores **0.551** accuracy vs the
+  form-favourite's 0.480 on the same matches (**+7pp**) — and it even beats the
+  full walk-forward XGBoost that has chemistry/age but no ratings (0.498).
+- restricted to clear favourites (|gap|≥3, n=173) accuracy rises to **0.618**.
+
+**Conclusion:** ratings carry materially more signal than the chemistry/age squad
+features did — expected, since `overall` is a direct expert quality assessment,
+not an indirect proxy. This is a clear green light to add ratings columns to
+`FEATURE_COLUMNS` and re-run `walk_forward` (which finally gives them training
+rows). **Honest caveat to carry into that build:** under walk-forward the earliest
+tournaments have thin ratings *training* coverage — the Euro 2016 model trains on
+zero prior ratings-covered tournaments, WC 2018 on one, etc. — so the in-model
+walk-forward gain will be smaller than this raw predictor's +7pp and will grow
+with each later tournament. The correlation justifies the build; it does not
+pre-promise the final number.
+
+## TRACK 2 in-model: a strong raw signal that first HURT, then was fixed by data
+
+Wiring the ratings into the model produced one of the project's most instructive
+results — a feature that predicts strongly *in isolation* can *hurt* inside the
+model, and the reason turns out to be data scarcity, not the feature.
+
+**First attempt (tournament-only ratings, 281 matches).** Absolute per-squad
+`overall` columns dropped walk-forward tournament accuracy to 0.459 (below the
+0.488 no-ratings model). Re-encoding as a single *relative* `rating_gap`
+(home−away) recovered it to the project-best 0.509 — but only when paired with
+the bare match-level features. Adding `rating_gap` on *top* of the squad
+chemistry/age features gave 0.477: the two feature groups appeared to "cloud"
+each other.
+
+**Root cause — checked directly, two intuitive explanations ruled OUT.**
+- *Not redundancy.* A squad's mean `overall` correlates with its chemistry/age
+  features at only **r≈0.07** — they measure different things, so it is not two
+  quality proxies conflicting.
+- *Not cross-edition rating drift.* The `overall` distribution is stable across
+  FIFA 15–24 (mean ~65–66), so a model trained on FIFA 16/18 is not misreading a
+  FIFA 21 scale.
+- *The actual cause: scarcity → variance.* Ratings existed on only 281 tournament
+  matches, with **0 training rows under any single cutoff** (a fitted model's
+  `rating_gap` gain was literally 0.00 there). The 10 chemistry/age features are
+  individually weak (TRACK 1: within noise); adding them plus a data-starved
+  rating column just gave a greedy booster more axes to overfit a tiny sample.
+  And bootstrap CIs later showed the whole "clouding" (~9 matches on 281) sat
+  *inside* the noise band — it was never a robust effect.
+
+**The fix (the partner's insight): stop starving the feature.** The
+`player_ratings` table covers all players, not just 5 tournaments — the *feature*
+was limited only because we have tournament **squads**, not match **lineups**. So
+a country's strength going into *any* international match is approximated by its
+tournament-squad **player pool's** mean `overall` at the match's era-correct
+edition (`load_team_pool_ratings` + `team_pool_rating`, `fifa_edition_for_date`
+mapping match date → FIFA edition). A strict `first_seen` cutoff (only players
+known as internationals *on or before* the match date) keeps it leakage-free.
+This lifts rating coverage from **281 → 1,081** leakage-free matches (friendlies,
+qualifiers, Nations League, tournaments) across 56 nations, and the raw signal
+holds: **r=0.42** on the expanded set (higher than the tournament-only 0.37,
+because the leakage-free pool is more era-appropriate).
+
+**Result — the clouding dissolves and ratings help (measured with bootstrap CIs).**
+On the 281-match tournament backtest every feature set is *statistically
+indistinguishable* (95% CIs all ≈[0.43, 0.56]) — the test is simply too small to
+resolve a few points; but the previously catastrophic all-features model rose
+0.459 → 0.484, most of the "clouding" gone. On a **broader, higher-power test**
+(738 covered matches from 2021+, train <2021):
+
+| feature set | acc | 95% CI | log-loss |
+|---|---|---|---|
+| match-level (9) | 0.505 | [0.469, 0.542] | 1.007 |
+| **+ rating_gap (10)** | **0.528** | [0.491, 0.564] | **0.996** |
+| + squad (19) | 0.505 | [0.469, 0.542] | 1.007 |
+| all (20) | 0.520 | [0.482, 0.557] | 0.997 |
+
+`rating_gap` adds **+2.3pp** (and **+2.5pp** on competitive-only, 0.542 vs 0.517),
+with the best log-loss in every cut — a consistent, corroborated lift rather than
+a noise blip (though the accuracy CIs still overlap, so not 95%-significant on
+accuracy alone). Crucially the **all-features model (0.520) now matches
++rating_gap (0.528)** — with real training coverage the squad and rating features
+coexist. The clouding was a scarcity artifact, and adding data (not manual
+weighting) resolved it.
+
+**Decision:** keep all 20 features. `rating_gap` earns its place; the squad
+features are now neutral (no longer clouding); nothing is removed. The honest
+headline for the write-up: on the small tournament backtest all approaches tie
+within noise, but on the larger competitive-match test the FIFA-rating gap is a
+real, if modest, source of skill — and the methodological point (a strong
+isolated predictor can be useless in-model until it has enough training data) is
+itself a result.
+
+**Caveats carried forward:** the pool rating approximates a country's strength,
+not its actual match-day XI (weakened friendly lineups add noise); only the 56
+nations with a tournament squad are covered; ~500 of the covered matches still
+lack ≥11 rated players at their edition and stay NaN; and `train_wdl`'s single
+2014 cutoff still can't use `rating_gap` at all (0 training rows) — walk-forward
+or a late split is required, exactly as the retrain-readiness analysis predicted.

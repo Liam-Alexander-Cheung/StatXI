@@ -1,58 +1,54 @@
 TO-DO / NEXT SESSION
 ====================
 
-[x] TRACK 1 — DONE (see "DONE THIS SESSION" below and methodology.md).
-    Glue built (match_tournament_edition), team_chemistry + squad_age_depth
-    wired into build_matrix.py (10 cols), retrained + evaluated. RESULT:
-    major-tournament acc 0.492 -> 0.500 under the original split (now BEATS
-    the 0.495 form-favourite baseline, where v1 lost to it); +3.2pp under an
-    end-of-2020 split. Modest, within noise, but direction is consistent on
-    both accuracy AND log-loss. Full numbers + caveats in methodology.md.
+WHERE THINGS STAND (end of this session)
+  - WDL XGBoost model is in good shape: match-level + squad chem/age (TRACK 1) +
+    FIFA rating_gap via country pools (TRACK 2) = 20 features. walk_forward.py is
+    the honest per-tournament backtest; rating_gap adds a modest, consistent
+    lift on a broader 738-match test. Everything is committed + documented.
+  - Poisson SCORELINE model: still a STUB — the entire second half of the project
+    (the classical-stats deliverable) is untouched.
+  - BOOKMAKER-ODDS benchmark: NOT acquired. This is half of the judges' hook
+    (agents.md: compare vs (1) naive baseline [have it] AND (2) bookmaker implied
+    probabilities [missing]). Biggest gap in the actual argument.
 
-[x] PROMOTED walk-forward harness -> src/models/walk_forward.py (committed,
-    reproduces the prototype exactly). Per-tournament + pooled report; derives
-    the backtest set from the data (WC/Euro editions >= 2016 that have a squad
-    edition), so a future squad scrape is picked up automatically. Consumes
-    FEATURE_COLUMNS, so TRACK 2 ratings columns will flow in with no change here.
-    Run: python -m src.models.walk_forward
-    RESULT (n=281): model acc 0.498 vs form-fav 0.491 (+0.7pp); log-loss 1.047
-    beats no-skill base-rate 1.099 (-0.052) and brier 0.631 vs 0.669 — real
-    calibrated skill, accuracy edge marginal. Under this rigorous split the
-    squad-feature gain is within noise (the end-of-2020 +3.2pp was partly a
-    favourable-split artifact; see methodology.md "Walk-forward reality check").
-    NOTE: train_wdl.py still uses the original single split; saved wdl_xgb.json
-    is the v2 model under THAT split. No production-split change made.
+NEXT SESSION — prioritised
+  [ ] 1. FINISH TRACK 2 RIGOROUSLY (small, high-value). Promote the 738-match
+         broader-covered evaluation + bootstrap CIs from scratchpad
+         (wf_ablation_pool.py) to a committed module. It is the ONLY thing giving
+         statistical power the 281-match tournament backtest lacks, so the
+         rating_gap +2.5pp claim is reproducible rather than a one-off script.
+         First step: decide where it lives (new src/models/broader_eval.py, or a
+         function in walk_forward.py) and what it reports (per-feature-set acc +
+         CI + log-loss on the covered 2021+ block).
 
-[ ] NEXT (TRACK 2, now unblocked by the harness): the cheap non-XGBoost check —
-    does mean squad `overall` correlate with outcomes across the 281 covered
-    tournament matches? If yes, add ratings cols to FEATURE_COLUMNS and re-run
-    walk_forward (they finally get training rows, unlike under a single cutoff).
+  [ ] 2. BOOKMAKER-ODDS BENCHMARK (the missing half of the judges' hook). Without
+         it we can't make the project's central claim. Steps:
+           - find a historical odds source covering the backtest tournaments
+             (football-data.co.uk has free CSVs w/ odds for many comps; or an
+             odds API). Watch coverage of internationals specifically.
+           - convert decimal odds -> implied probs, DE-VIG (normalise out the
+             bookmaker margin) -> a 3-way prob vector per match.
+           - add as a baseline in evaluate_wdl / walk_forward alongside form-fav
+             and base-rate; compare log-loss + accuracy. THIS is the headline
+             comparison the whole project is built around.
 
-[ ] TRACK 2 — bigger lift, separate: ratings features (overall/potential)
-    are linked (see DONE THIS SESSION) but have ZERO training-set rows under
-    the current single 2014 cutoff — every rating-covered tournament
-    (Euro16/20/24, WC18/22) falls entirely in the test block (2016+), so
-    XGBoost has nothing to learn from those columns as-is. Needs
-    WALK-FORWARD RETRAINING first (train fresh before each backtest
-    tournament) — already flagged as a v1 "Next" item, now a hard
-    prerequisite specifically for ratings features, not just a staleness fix.
-      - SUGGESTED FIRST STEP before committing to that engineering lift: a
-        cheap non-XGBoost check — does mean squad `overall` actually
-        correlate with outcomes across the 281 covered tournament matches?
-        No split/model machinery needed, de-risks the investment.
+  [ ] 3. POISSON SCORELINE MODEL (the untouched classical-stats half). Still a
+         stub. Fit attack/defence strengths + Monte Carlo. Open design question,
+         now better informed: whether to add a rating_gap/squad-quality covariate
+         to the Poisson rate — the TRACK 2 finding suggests rating_gap carries
+         real signal, so test it against a plain attack/defence baseline rather
+         than assuming. Big chunk; probably its own multi-session workstream.
 
-[ ] Human review pass on ratings_match_review_queue.csv (153 medium-
-    confidence player-rating links, gitignored/regenerable — see
-    methodology.md) — Liam's call on each, per the no-fabrication rule.
-
-[ ] Minor, low-priority, found as a side effect (not fixed): some historical
-    squad rows (pre-2016, so outside the ratings work's scope) still carry a
-    literal "(c)" in player_name instead of it being stripped into the
-    is_captain flag — build_squad_schema.py's clean_player_name() only
-    matches the literal string "(captain)", not the "(c)" abbreviation some
-    Wikipedia tournament pages use instead. Confirmed it does NOT affect any
-    of the 5 ratings-linked tournaments. Worth a fix whenever squad scraping
-    is next touched.
+  [ ] Lower priority (when convenient):
+        - Human review of ratings_match_review_queue.csv (153 medium-confidence
+          links, gitignored/regenerable) — Liam's call each, per no-fabrication.
+        - (c) captain-marker fix: build_squad_schema.py clean_player_name() only
+          strips literal "(captain)", not the "(c)" abbreviation some pre-2016
+          Wikipedia pages use. Does NOT affect the 5 ratings-linked tournaments.
+          Fix whenever squad scraping is next touched.
+        - Tournament STAGE weighting (group vs knockout) — distinct from the
+          competition-tier importance weights already built; still not done.
 
 RUNNING THE WEBAPP
   - Now on PORT 5001 (port 5000 is taken by macOS AirPlay / stale process):
@@ -61,6 +57,30 @@ RUNNING THE WEBAPP
     then open http://127.0.0.1:5001/
   - If a route 404s / a card loads forever: it's a STALE server process still
     serving old code. Restart it. (The debug reloader doesn't always fire.)
+
+DONE THIS SESSION (TRACK 2 — FIFA ratings into the model, via country pools)
+  - Correlation de-risk: mean squad `overall` predicts strongly (r=0.42, higher-
+    rated team wins 75% of decisive tournament matches).
+  - Found + diagnosed the "clouding": naive absolute ratings HURT (0.459); relative
+    rating_gap fixed the encoding; adding it to the squad features seemed to cloud
+    them. Root cause = DATA SCARCITY, not redundancy (rating vs squad r~0.07; overall
+    scale stable across editions; bootstrap CIs showed it was within noise).
+  - FIX (partner's idea): ratings aren't limited to 5 tournaments — only LINEUP data
+    is. Approximate each country's strength from its tournament-squad player POOL's
+    mean overall at the era-correct edition, applied to ANY covered match.
+      * src/data_pipeline.py: fifa_edition_for_date() (date->FIFA edition, reproduces
+        the tournament map exactly), TOURNAMENT_START_DATE, load_team_pool_ratings().
+      * src/features.py: build_pool_index() + team_pool_rating() with a leakage-safe
+        first_seen cutoff (a match only sees players known as internationals by its
+        own date — verified France's eligible pool grows 22->45 over 2016->2023).
+      * src/models/build_matrix.py: swapped tournament-only absolutes for a single
+        pool-based rating_gap; absolutes kept as metadata. rating_gap coverage
+        281 -> 1081 leakage-free matches; signal holds r=0.42.
+  - RESULT: broader 738-match test -> rating_gap +2.3-2.5pp, best log-loss; clouding
+    dissolves (all-features 0.520 ~= +rating_gap 0.528). Tournament backtest (281)
+    all within noise (CIs ~[0.43,0.56]). Kept all 20 features. wdl_xgb.json retrained
+    (2014 split still can't use ratings — expected; all-test 0.579 unchanged).
+    walk_forward.py now inherits rating_gap automatically. Full arc in methodology.md.
 
 DONE THIS SESSION (TRACK 1 — squad features wired into the WDL model, v2)
   - src/data_pipeline.py: load_tournament_editions() + match_tournament_edition()

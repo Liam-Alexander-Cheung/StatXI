@@ -1,7 +1,7 @@
 import math  # math.comb(k, 2) counts unordered pairs — used for club-pair chemistry
 import pandas as pd
 #import recency_weight and imortance_weight from data_pipeline.
-from src.data_pipeline import recency_weight, importance_weight
+from src.data_pipeline import recency_weight, importance_weight, fifa_edition_for_date
 
 
 # define rolling_form
@@ -342,3 +342,81 @@ def transfer_value_delta_z(
         return candidates[-1]["value"]
 
     return closest_value(target_recent), closest_value(target_past)
+
+
+# A squad mean needs enough rated players to be trustworthy. Below a starting
+# XI's worth (11), the mean is dominated by whoever happened to link, so we
+# return NaN rather than a shaky number — same never-fabricate stance as the
+# other squad features (missing -> NaN, never a guessed value).
+_MIN_RATED_PLAYERS = 11
+
+
+def squad_mean_rating(
+    squad_ratings: pd.DataFrame, team: str, tournament_name: str
+) -> dict:
+    """
+    Mean FIFA/FC `overall` (and `potential`) of a team's rated players at one
+    tournament — the direct squad-quality signal validated in the TRACK 2
+    correlation check (higher mean `overall` -> the team wins markedly more).
+
+    `squad_ratings` is the flat frame from load_squad_ratings (already scoped to
+    the era-correct edition per tournament). Returns NaN for both means when the
+    tournament has no ratings coverage or fewer than _MIN_RATED_PLAYERS linked
+    players — squad-scoped like squad_age_depth / team_chemistry, not date-scoped.
+    """
+    squad = squad_ratings[
+        (squad_ratings["team"] == team)
+        & (squad_ratings["tournament_name"] == tournament_name)
+    ]
+    # count only appearances that actually resolved to a rating value
+    n_rated = int(squad["overall"].notna().sum())
+
+    if n_rated < _MIN_RATED_PLAYERS:
+        return {"mean_overall": float("nan"),
+                "mean_potential": float("nan"),
+                "n_rated": n_rated}
+
+    return {
+        "mean_overall": round(squad["overall"].mean(), 3),
+        "mean_potential": round(squad["potential"].mean(), 3),
+        "n_rated": n_rated,
+    }
+
+
+def build_pool_index(pool: pd.DataFrame) -> dict:
+    """
+    Group the flat pool table from load_team_pool_ratings into a fast lookup:
+        {(team, fifa_version): [(first_seen, overall), ...]}
+    Built once; lets team_pool_rating answer millions of per-match queries without
+    re-filtering a 14k-row DataFrame each time (this feature, unlike the squad
+    ones, fires on ~every match, not just the ~875 tournament rows).
+    """
+    index: dict = {}
+    for team, _sid, first_seen, version, overall in pool.itertuples(index=False):
+        index.setdefault((team, version), []).append((first_seen, overall))
+    return index
+
+
+def team_pool_rating(pool_index: dict, team: str, match_date: pd.Timestamp,
+                     min_rated: int = 11) -> float:
+    """
+    Estimate a country's squad strength going INTO a match: the mean FIFA `overall`
+    of its known internationals at the match's era-correct edition. This is the
+    approximation that extends ratings from the 5 scraped tournaments to any
+    international match in the FIFA-era window (we have squads, not match lineups,
+    so a country's tournament-squad player pool stands in for its match-day XI).
+
+    Leakage guard: only players whose `first_seen` is on or before `match_date`
+    count — a match can never be credited with a player known only from a *later*
+    squad. Returns NaN before FIFA 15, for uncovered teams, or when fewer than
+    `min_rated` players are available (never a fabricated number).
+    """
+    edition = fifa_edition_for_date(match_date)
+    if edition is None:
+        return float("nan")
+    entries = pool_index.get((team, edition), [])
+    # keep only players already "known" as this country's internationals by now
+    overalls = [overall for first_seen, overall in entries if first_seen <= match_date]
+    if len(overalls) < min_rated:
+        return float("nan")
+    return round(sum(overalls) / len(overalls), 3)
