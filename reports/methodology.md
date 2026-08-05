@@ -1278,3 +1278,82 @@ the 2016+ majors fully held out. It is random search (not exhaustive) over ~9 di
 And this only tuned the *weighting*: the XGBoost hyperparameters are a separate,
 likely higher-leverage knob, deliberately left as the next tuner (Phase B) so any
 gain there can be attributed cleanly rather than tangled with the weighting.
+
+## Hyperparameter tuner (Phase B): the higher-leverage knob, same honest verdict
+
+The weighting turned out to be low-leverage, so Phase B tuned the actual XGBoost
+hyperparameters — the more plausible source of a real gain. Rather than duplicate
+the leakage-safe machinery, the pre-2016 inner objective and the held-out bootstrap
+comparison were first extracted into `src/models/tune_common.py` (verified inert:
+the weighting tuner still reproduces its 0.9224 baseline exactly afterward), and
+both tuners now inject through the same core — the weighting tuner varies a
+`weight_fn`, the hyperparameter tuner a `model_fn` (`build_model` gained keyword
+overrides; `_fit_before`/`walk_forward` gained a `model_fn` argument, both
+byte-identical by default). A built-in cross-check ties the second tuner to the
+first: its baseline objective is **also 0.9224**, and its baseline held-out
+walk-forward reproduces the committed 0.484 acc / 1.055 log-loss — same model,
+reached a different way.
+
+Six knobs were searched (`max_depth`, `learning_rate`, `subsample`,
+`colsample_bytree`, `min_child_weight`, `reg_lambda`; `n_estimators` is left to
+early stopping), 120 random trials, same rules: rank by pre-2016 validation
+log-loss, never touch 2016+, propose-don't-overwrite.
+
+**Result — a slightly larger validation edge that still doesn't survive.** The best
+config (a *more* conservative model: depth 3, learning-rate 0.016, `min_child_weight`
+9, `reg_lambda` 0.62) improved validation log-loss by **−0.0011** — five times the
+weighting's −0.0002, but still tiny. On the held-out 2016+ backtest:
+
+| metric | baseline | proposed | Δ |
+|---|---|---|---|
+| accuracy | 0.484 | 0.491 | +0.007 |
+| log-loss | 1.055 | 1.048 | −0.007 |
+| Brier | 0.633 | 0.630 | −0.004 |
+
+Paired bootstrap on the log-loss difference: 95% CI **[−0.026, +0.012]** — straddles
+zero, **within noise**. Keep the baseline hyperparameters; nothing promoted (recorded
+in `src/models/best_hyper_config.json`).
+
+**The combined finding (both tuners).** Neither the match weighting nor the XGBoost
+hyperparameters is a reproducible source of skill on this backtest — both hand-chosen
+sets are already near-optimal, and model performance is dominated by the *features* and
+the intrinsic difficulty of international-match prediction, not by tuning knobs. A
+telling detail confirms the discipline: the weighting's apparent test-accuracy bump
+(+2.5pp) was *larger* than the hyperparameters' (+0.7pp) despite a *smaller* validation
+gain — the two "improvements" don't even rank-order consistently, which is exactly what
+noise looks like. The deliverable of this workstream is therefore methodological: a
+reusable, leakage-safe, propose-don't-overwrite tuning harness (`tune_common` +
+`tune_weights` + `tune_hyperparams`) that measures whether a proposed change is real
+and, here, correctly refuses to over-claim. That is a stronger result for the write-up
+than a cherry-picked accuracy bump would have been.
+
+**Combining the knobs — and a clean demonstration of test-set peeking.** The obvious
+follow-up: each knob was within noise alone, but do they *stack*? Two ways to ask,
+with opposite honesty:
+
+- *Peeked* (`tune_combined.py`): apply the two individually-best proposals together and
+  test. On validation the weighting added ~nothing beyond the hyperparameters
+  (combined 0.9212 vs hyper-only 0.9213); on the held-out set this gave the best point
+  estimate yet — accuracy **0.484 → 0.495 (+1.1pp)**, log-loss −0.0157 — but the
+  bootstrap CI **[−0.0375, +0.0062]** still included zero. Tempting, but this config was
+  chosen *after* seeing test results for its parts.
+- *Clean* (`tune_joint.py`): one leakage-safe JOINT search over all 15 dims (250 trials),
+  winner selected purely on pre-2016 validation, tested exactly once. Two things fell
+  out. First, random search *dilutes* in higher dimensions: the joint search's best
+  validation edge (−0.0005) was **smaller** than the focused 6-dim hyperparameter search
+  (−0.0011) — 250 trials spread over 15 dims cover the good region less densely than 120
+  over 6. Second, and decisively, on the held-out set the joint winner's accuracy went
+  **0.484 → 0.473 (−1.1pp, *worse*)**, log-loss −0.0128, CI **[−0.0302, +0.0045]** — within
+  noise.
+
+The same style of config swung from **+1.1pp** (peeked) to **−1.1pp** (clean) on
+held-out accuracy purely because of whether the test set was allowed to influence the
+choice. That reversal is the clearest evidence in the project of why the honest
+protocol — select on validation, test once, report a CI — is not pedantry: it is what
+stops a small (n=281) held-out set from being gradually fit by repeated candidate
+testing. Final decision: **keep the baseline weighting and hyperparameters**; nothing
+promoted. Proposals + held-out verdicts are recorded in `best_{weight,hyper,joint}_config.json`.
+
+**Next lever.** Both marginals and their honest combination are flat, so more tuning
+(Optuna, more trials) is low-value; the far higher-leverage work is better *features*
+and the bookmaker-odds benchmark, not squeezing the knobs.

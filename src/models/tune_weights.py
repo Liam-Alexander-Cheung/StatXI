@@ -47,7 +47,6 @@ import pandas as pd
 # Tier MEMBERSHIP is imported, not re-listed here, so it can never drift from the
 # production definition. We only ever vary the tier VALUES.
 from src.data_pipeline import (
-    recency_weight,
     importance_weight,
     FIFA_MAJOR_FINALS,
     FIFA_MAJOR_QUALIFICATION,
@@ -56,14 +55,15 @@ from src.data_pipeline import (
     REGIONAL_QUALIFICATION,
     MULTISPORT_GAMES,
 )
-from sklearn.metrics import log_loss, accuracy_score
-
-from src.models.build_matrix import FEATURE_COLUMNS, LABEL_COLUMN, PROCESSED_DIR
-from src.models.train_wdl import load_matrix, LABEL_TO_INT
-from src.models.walk_forward import (
-    _sample_weights, _fit_before, walk_forward, VAL_DAYS, CLASSES, CLASS_NAMES,
+from src.models.build_matrix import PROCESSED_DIR
+from src.models.train_wdl import load_matrix
+from src.models.walk_forward import _sample_weights, walk_forward
+# The leakage-safe inner objective + held-out comparison helpers are shared with
+# the hyperparameter tuner — see tune_common.
+from src.models.tune_common import (
+    inner_folds, inner_objective, INNER_TEST_START,
+    per_match_logloss, bootstrap_diff_ci, pooled_metrics,
 )
-from src.models.evaluate_wdl import multiclass_brier
 
 # --- Tier names + the current (baseline) values -----------------------------
 # These 8 names label the branches of data_pipeline.importance_weight. The values
@@ -170,89 +170,19 @@ def apply_config(df: pd.DataFrame, cfg: WeightConfig):
     return df_trial, weight_fn
 
 
-# ---------------------------------------------------------------------------
-# A2: the INNER objective — a leakage-safe walk-forward over PRE-2016 folds.
-#
-# This is the number the search minimises. The whole honesty of the tuner rests
-# on it never touching a 2016+ match: the 2016+ tournaments are reserved for the
-# single final comparison in A4. We use rolling-origin blocks over < 2016 data,
-# each trained on all prior history (expanding window) — the same discipline as
-# the real backtest, just applied to the development era so the test era stays
-# untouched. High n (all matches, not only majors) makes the objective a stable
-# target the search can't easily overfit.
-# ---------------------------------------------------------------------------
-
-# The wall the inner search must never cross. Matches the project's held-out
-# boundary (train_wdl.TEST_START); everything scored during tuning is strictly before it.
-INNER_TEST_START = pd.Timestamp("2016-01-01")
-
-# Rolling-origin scoring blocks, all ending on/before INNER_TEST_START. Two-year
-# blocks from 2004 give 6 folds with ~1.5-2k matches each and >=14 years of
-# training history before the first one — enough signal without a per-year fit
-# explosion. Fold k trains on everything before block k's start (expanding window).
-INNER_BLOCK_EDGES = [pd.Timestamp(f"{y}-01-01") for y in range(2004, 2018, 2)]  # 2004,06,...,2016
-
-
-def inner_folds() -> list[tuple[pd.Timestamp, pd.Timestamp]]:
-    """(block_start, block_end) pairs for the pre-2016 rolling-origin CV. Every
-    block_end is <= INNER_TEST_START, so no fold ever scores a 2016+ match."""
-    edges = INNER_BLOCK_EDGES
-    folds = list(zip(edges[:-1], edges[1:]))
-    assert all(end <= INNER_TEST_START for _, end in folds), "a fold crosses into the test era"
-    return folds
-
-
+# The inner objective (leakage-safe pre-2016 walk-forward) lives in tune_common
+# and is shared with the hyperparameter tuner. Here it is specialised to a
+# WEIGHTING config: apply_config remaps importance + builds the weighting, then
+# tune_common.inner_objective scores it with the production model builder.
 def objective(cfg: WeightConfig, df: pd.DataFrame | None = None,
-              folds: list[tuple[pd.Timestamp, pd.Timestamp]] | None = None,
-              verbose: bool = False) -> dict:
-    """
-    Pooled PRE-2016 walk-forward validation score for one weighting config.
-
-    For each rolling block [start, end): fit a fresh model on all matches before
-    `start` (reusing walk_forward._fit_before with cfg's injected weighting +
-    early stopping), then predict the matches in the block. Pool truth and
-    predicted probabilities across all blocks and score ONCE.
-
-    Returns {'log_loss', 'acc', 'n', 'n_fits', 'max_scored_date'}. `log_loss` is
-    the search objective (lower is better); the rest are for reporting / the
-    leakage assertion. Never scores a match on/after INNER_TEST_START.
-    """
+              folds=None, verbose: bool = False) -> dict:
+    """Pooled PRE-2016 validation score for one weighting config (see
+    tune_common.inner_objective). Returns {'log_loss','acc','n','n_fits',
+    'max_scored_date'}; log_loss is the search objective."""
     if df is None:
         df = load_matrix()
-    if folds is None:
-        folds = inner_folds()
-
-    df_trial, weight_fn = apply_config(df, cfg)   # remap importance + build weighting
-
-    y_all, proba_all = [], []
-    n_fits = 0
-    max_scored = pd.Timestamp.min           # true latest scored match date (leakage guard)
-    for start, end in folds:
-        # score = matches inside this block; _fit_before trains strictly before `start`
-        # (minus its trailing early-stopping slice), so start is a hard leakage wall.
-        block = df_trial[(df_trial["date"] >= start) & (df_trial["date"] < end)]
-        if len(block) == 0:
-            continue
-        model, n_tr, n_val = _fit_before(df_trial, start, FEATURE_COLUMNS, VAL_DAYS, weight_fn)
-        proba = model.predict_proba(block[FEATURE_COLUMNS])
-        y_all.append(block[LABEL_COLUMN].map(LABEL_TO_INT).to_numpy())
-        proba_all.append(proba)
-        n_fits += 1
-        max_scored = max(max_scored, block["date"].max())
-        if verbose:
-            print(f"  fold {start.year}-{end.year}: score n={len(block):4d}  train n={n_tr:5d}  trees={model.best_iteration}")
-
-    y = np.concatenate(y_all)
-    proba = np.vstack(proba_all)
-    pred = proba.argmax(axis=1)
-
-    return {
-        "log_loss": float(log_loss(y, proba, labels=CLASSES)),
-        "acc": float(accuracy_score(y, pred)),
-        "n": int(len(y)),
-        "n_fits": n_fits,
-        "max_scored_date": max_scored,   # the latest match the objective ever scored
-    }
+    df_trial, weight_fn = apply_config(df, cfg)          # vary the weighting only
+    return inner_objective(df_trial, weight_fn=weight_fn, folds=folds, verbose=verbose)
 
 
 # ---------------------------------------------------------------------------
@@ -392,36 +322,6 @@ def load_best_config() -> WeightConfig:
     )
 
 
-def _per_match_logloss(pooled: dict) -> np.ndarray:
-    """Log-loss contribution of each individual test match (so we can pair the two
-    configs match-by-match for a bootstrap). Clipped to avoid log(0)."""
-    y_int = pd.Series(pooled["y"]).map(LABEL_TO_INT).to_numpy()
-    p_true = pooled["proba"][np.arange(len(y_int)), y_int]
-    return -np.log(np.clip(p_true, 1e-15, 1.0))
-
-
-def _bootstrap_diff_ci(d: np.ndarray, n_boot: int = 10000, seed: int = 0, alpha: float = 0.05):
-    """Percentile bootstrap CI for the MEAN of paired per-match differences d.
-    Returns (point, lo, hi). If the CI straddles 0, the difference is within noise."""
-    rng = np.random.default_rng(seed)
-    idx = rng.integers(0, len(d), size=(n_boot, len(d)))     # B x n resample matrix
-    boot_means = d[idx].mean(axis=1)
-    lo, hi = np.percentile(boot_means, [100 * alpha / 2, 100 * (1 - alpha / 2)])
-    return float(d.mean()), float(lo), float(hi)
-
-
-def _pooled_metrics(pooled: dict) -> dict:
-    y = pooled["y"]
-    y_int = pd.Series(y).map(LABEL_TO_INT).to_numpy()
-    proba = pooled["proba"]
-    pred = np.array([CLASS_NAMES[i] for i in proba.argmax(axis=1)])
-    return {
-        "acc": accuracy_score(y, pred),
-        "log_loss": log_loss(y_int, proba, labels=CLASSES),
-        "brier": multiclass_brier(y_int, proba),
-    }
-
-
 def final_report(n_boot: int = 10000, seed: int = 0) -> None:
     """Run the 2016+ walk-forward for {baseline, proposed} and compare honestly."""
     df = load_matrix()
@@ -441,7 +341,7 @@ def final_report(n_boot: int = 10000, seed: int = 0) -> None:
     # weighting changed) — otherwise the paired bootstrap is invalid.
     assert np.array_equal(pooled_b["y"], pooled_s["y"]), "configs scored different match sets"
 
-    m_b, m_s = _pooled_metrics(pooled_b), _pooled_metrics(pooled_s)
+    m_b, m_s = pooled_metrics(pooled_b), pooled_metrics(pooled_s)
     n = len(pooled_b["y"])
 
     print(f"\n{'='*72}\nHELD-OUT 2016+ COMPARISON  (n={n} tournament matches)\n{'='*72}")
@@ -456,8 +356,8 @@ def final_report(n_boot: int = 10000, seed: int = 0) -> None:
         print(f"{key:<12}{m_b[key]:>12.4f}{m_s[key]:>12.4f}{m_s[key]-m_b[key]:>+12.4f}")
 
     # paired bootstrap on the log-loss difference (proposed - baseline; negative = better)
-    d = _per_match_logloss(pooled_s) - _per_match_logloss(pooled_b)
-    point, lo, hi = _bootstrap_diff_ci(d, n_boot=n_boot, seed=seed)
+    d = per_match_logloss(pooled_s) - per_match_logloss(pooled_b)
+    point, lo, hi = bootstrap_diff_ci(d, n_boot=n_boot, seed=seed)
     print(f"\nlog-loss difference (proposed - baseline), paired bootstrap "
           f"[{n_boot} resamples]:")
     print(f"  point {point:+.4f}   95% CI [{lo:+.4f}, {hi:+.4f}]")

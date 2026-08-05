@@ -6,11 +6,17 @@ WHERE THINGS STAND (end of this session)
     FIFA rating_gap via country pools (TRACK 2) = 20 features. walk_forward.py is
     the honest per-tournament backtest; rating_gap adds a modest, consistent
     lift on a broader 738-match test. Everything is committed + documented.
-  - WEIGHTING auto-tuner: BUILT + run (branch model-tuning). Finding: the hand-tuned
-    per-match weighting is near-optimal — 200-trial leakage-safe search moved
-    validation log-loss by -0.0002, and the apparent +2.5pp test-accuracy gain is
-    WITHIN NOISE (bootstrap CI [-0.025,+0.005]). Kept the baseline; nothing promoted.
-    Next weighting-family lever is XGB hyperparameters (Phase B, see NEXT SESSION).
+  - TUNING (branch model-tuning): weighting, hyperparameter AND joint tuners BUILT + run
+    on one shared leakage-safe harness (tune_common + tune_weights + tune_hyperparams +
+    tune_combined + tune_joint). Finding: NO tuning of weighting or XGB hyperparameters
+    is a reproducible source of skill — the hand-tuned baselines are near-optimal.
+      * Weighting-only:   val -0.0002, held-out +2.5pp acc, WITHIN NOISE (CI [-.025,+.005]).
+      * Hyperparams-only: val -0.0011, held-out +0.7pp acc, WITHIN NOISE (CI [-.026,+.012]).
+      * Combined (peeked): best point est (+1.1pp acc) but CI still includes 0.
+      * JOINT (clean, no peeking): held-out acc -1.1pp (WORSE), CI [-.030,+.005], noise.
+    The +1.1pp (peeked) -> -1.1pp (clean) accuracy REVERSAL is a textbook test-set-peeking
+    demo — strong Projektbeschreibung material. Kept ALL baselines; nothing promoted.
+    The honest propose-don't-overwrite + bootstrap-CI harness IS the deliverable.
   - Poisson SCORELINE model: still a STUB — the entire second half of the project
     (the classical-stats deliverable) is untouched. Also now the agreed home for
     DRAW modelling (see the deferred draw note under item 3).
@@ -63,17 +69,15 @@ NEXT SESSION — prioritised
            A separate "who advances" (2-way, ~50/50 shootout) target is the home
            for knockout resolution, needed by the Monte Carlo simulator.
 
-  [ ] 4. XGB HYPERPARAMETER TUNER (Phase B, agreed follow-on to the weighting tuner).
-         Build AFTER the weighting tuner (done), as a SEPARATE module that does not
-         run simultaneously — src/models/tune_hyperparams.py. Same honesty protocol
-         already proven in tune_weights.py: optimise pre-2016 walk-forward validation
-         LOG-LOSS, never score a 2016+ match during the search, bootstrap-CI the
-         held-out 2016+ difference, propose-don't-overwrite. Search build_model()'s
-         params (max_depth, learning_rate, subsample, colsample_bytree,
-         min_child_weight, reg_lambda, n_estimators bound). Reuse _fit_before but
-         make its model builder injectable too. Random search by default; Optuna is
-         an OPTIONAL new dependency needing sign-off (precedent: rapidfuzz). This is
-         the higher-leverage knob the weighting turned out NOT to be.
+  [x] 4. XGB HYPERPARAMETER TUNER (Phase B) — DONE. src/models/tune_hyperparams.py,
+         built on the shared tune_common harness (model_fn injection added to
+         build_model/_fit_before/walk_forward). 120-trial leakage-safe random search
+         over 6 knobs (max_depth, learning_rate, subsample, colsample_bytree,
+         min_child_weight, reg_lambda). Result: val -0.0011, held-out +0.7pp acc but
+         WITHIN NOISE (CI [-0.026,+0.012]) — kept baseline, nothing promoted. Turned
+         out NOT to be higher-leverage after all; both tuning marginals are flat.
+         (Optuna / a joint weighting x hyperparameter search remain optional future
+         extensions, but features + the bookmaker benchmark are the better spend.)
 
   [ ] Lower priority (when convenient):
         - Human review of ratings_match_review_queue.csv (153 medium-confidence

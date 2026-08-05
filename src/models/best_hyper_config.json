@@ -1,0 +1,47 @@
+{
+  "_note": "PROPOSAL from tune_hyperparams.random_search. NOT auto-applied to train_wdl.DEFAULT_HYPERPARAMS. Validation = pre-2016 walk-forward log-loss; the honest test is the 2016+ comparison in `report`.",
+  "config": {
+    "max_depth": 3,
+    "learning_rate": 0.015616661269875359,
+    "subsample": 0.5618769018251724,
+    "colsample_bytree": 0.9637812755032538,
+    "min_child_weight": 9,
+    "reg_lambda": 0.6239594802658929
+  },
+  "validation": {
+    "log_loss": 0.9212788252216619,
+    "acc": 0.5659278574532812,
+    "n": 11505
+  },
+  "baseline_validation": {
+    "log_loss": 0.9223934867100947,
+    "acc": 0.5663624511082138
+  },
+  "val_log_loss_improvement": 0.0011146614884327555,
+  "search": {
+    "seed": 42,
+    "k": 120,
+    "is_baseline": false
+  },
+  "held_out_2016plus": {
+    "n": 281,
+    "baseline": {
+      "acc": 0.484,
+      "log_loss": 1.0547,
+      "brier": 0.6335
+    },
+    "proposed": {
+      "acc": 0.4911,
+      "log_loss": 1.0479,
+      "brier": 0.6297
+    },
+    "log_loss_diff": {
+      "point": -0.0068,
+      "ci95_lo": -0.0262,
+      "ci95_hi": 0.012,
+      "n_boot": 10000
+    },
+    "verdict": "WITHIN NOISE \u2014 the CI straddles 0; no real held-out gain.",
+    "recommendation": "KEEP BASELINE (proposed not distinguishable from it)"
+  }
+}

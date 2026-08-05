@@ -78,18 +78,21 @@ def _sample_weights(df: pd.DataFrame, ref_date: pd.Timestamp) -> np.ndarray:
 
 
 def _fit_before(df: pd.DataFrame, t_start: pd.Timestamp, feature_columns: list[str],
-                val_days: int, weight_fn=_sample_weights):
+                val_days: int, weight_fn=_sample_weights, model_fn=build_model):
     """Fit a fresh model on all matches before `t_start`, early-stopping on the
     trailing `val_days` window. Returns (model, n_train, n_val).
 
-    `weight_fn(train_df, t_start) -> weights` is the per-match training weight,
-    defaulting to `_sample_weights`. It is the single injection point the
-    weighting tuner uses; everything else (split, early stopping, model) is fixed."""
+    Two injection points, both defaulting to production behaviour:
+      `weight_fn(train_df, t_start) -> weights`  — per-match training weight
+                                                   (the weighting tuner varies this).
+      `model_fn() -> fresh XGBClassifier`        — the model builder (the
+                                                   hyperparameter tuner varies this).
+    Everything else (the temporal split, early stopping) is fixed."""
     val_start = t_start - pd.Timedelta(days=val_days)
     train = df[df["date"] < val_start]
     val = df[(df["date"] >= val_start) & (df["date"] < t_start)]
 
-    model = build_model()
+    model = model_fn()
     model.fit(
         train[feature_columns], train[LABEL_COLUMN].map(LABEL_TO_INT),
         sample_weight=weight_fn(train, t_start),
@@ -100,22 +103,23 @@ def _fit_before(df: pd.DataFrame, t_start: pd.Timestamp, feature_columns: list[s
 
 
 def walk_forward(df: pd.DataFrame, feature_columns: list[str] = FEATURE_COLUMNS,
-                 val_days: int = VAL_DAYS, weight_fn=_sample_weights):
+                 val_days: int = VAL_DAYS, weight_fn=_sample_weights, model_fn=build_model):
     """
     Run the backtest. Returns (per_tournament, pooled) where per_tournament is a
     list of dicts (one per edition) and pooled holds the concatenated truth /
     model-probabilities / baseline predictions across every backtested match, so
     the caller can compute an exact pooled score.
 
-    `weight_fn` is the per-match training weighting (default `_sample_weights`),
-    forwarded to each fold's fit so the tuner can backtest an alternative weighting.
+    `weight_fn` (weighting) and `model_fn` (model builder) both default to
+    production behaviour and are forwarded to each fold's fit, so a tuner can
+    backtest an alternative weighting OR an alternative hyperparameter set.
     """
     rows = []
     pool = {"y": [], "proba": [], "form_fav": [], "base": []}
 
     for edition, t_start in backtest_editions(df):
         T = df[df["edition"] == edition]
-        model, n_tr, n_val = _fit_before(df, t_start, feature_columns, val_days, weight_fn)
+        model, n_tr, n_val = _fit_before(df, t_start, feature_columns, val_days, weight_fn, model_fn)
 
         proba = model.predict_proba(T[feature_columns])
         pred = np.array([CLASS_NAMES[i] for i in proba.argmax(axis=1)])

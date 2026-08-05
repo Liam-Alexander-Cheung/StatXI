@@ -83,48 +83,57 @@ def sample_weights(df: pd.DataFrame) -> np.ndarray:
     ).to_numpy()
 
 
-def build_model() -> XGBClassifier:
-    """
-    XGBClassifier with parameters chosen for a small (~26k-row) tabular problem.
-    Each hyperparameter, in plain terms:
+# The default hyperparameters, chosen for a small (~26k-row) tabular problem.
+# Split out as a dict (not inlined in build_model) so the hyperparameter tuner
+# (src/models/tune_hyperparams.py) can read the baseline and override individual
+# keys. Each one, in plain terms:
+#   objective="multi:softprob"  -> output a probability per class (H/D/A)
+#   num_class=3                 -> three outcomes
+#   eval_metric="mlogloss"      -> optimise/early-stop on multiclass log-loss,
+#                                  the metric that punishes overconfident wrong
+#                                  calls (our real target, not raw accuracy)
+#   n_estimators=600            -> up to 600 boosting trees (early stopping
+#                                  will usually cut this far shorter)
+#   max_depth=4                 -> shallow trees. Depth caps how many features
+#                                  can interact in one tree; 4 is enough for
+#                                  "form x venue x importance" without letting
+#                                  the model memorise 26k rows
+#   learning_rate=0.05          -> shrink each tree's contribution, so no single
+#                                  tree dominates (more trees, gentler nudges =
+#                                  better generalisation)
+#   subsample=0.8               -> each tree sees 80% of rows (row bagging)
+#   colsample_bytree=0.8        -> each tree sees 80% of features
+#   min_child_weight=5          -> a split must keep >=~5 (weighted) samples per
+#                                  side; blocks tiny overfit leaves
+#   reg_lambda=1.0              -> L2 penalty on leaf weights (regularisation)
+#   early_stopping_rounds=40    -> stop if val log-loss doesn't improve for 40
+#                                  rounds; keeps the best iteration
+DEFAULT_HYPERPARAMS = dict(
+    objective="multi:softprob",
+    num_class=3,
+    eval_metric="mlogloss",
+    n_estimators=600,
+    max_depth=4,
+    learning_rate=0.05,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    min_child_weight=5,
+    reg_lambda=1.0,
+    early_stopping_rounds=40,
+    random_state=42,
+    n_jobs=-1,
+)
 
-      objective="multi:softprob"  -> output a probability per class (H/D/A)
-      num_class=3                 -> three outcomes
-      eval_metric="mlogloss"      -> optimise/early-stop on multiclass log-loss,
-                                     the metric that punishes overconfident wrong
-                                     calls (our real target, not raw accuracy)
-      n_estimators=600            -> up to 600 boosting trees (early stopping
-                                     will usually cut this far shorter)
-      max_depth=4                 -> shallow trees. Depth caps how many features
-                                     can interact in one tree; 4 is enough for
-                                     "form x venue x importance" without letting
-                                     the model memorise 26k rows
-      learning_rate=0.05          -> shrink each tree's contribution, so no
-                                     single tree dominates (more trees, each a
-                                     gentler nudge = better generalisation)
-      subsample=0.8               -> each tree sees 80% of rows (row bagging)
-      colsample_bytree=0.8        -> each tree sees 80% of features
-      min_child_weight=5          -> a split must keep >=~5 (weighted) samples
-                                     per side; blocks tiny overfit leaves
-      reg_lambda=1.0              -> L2 penalty on leaf weights (regularisation)
-      early_stopping_rounds=40    -> stop if val log-loss doesn't improve for 40
-                                     rounds; keeps the best iteration
+
+def build_model(**overrides) -> XGBClassifier:
     """
-    return XGBClassifier(
-        objective="multi:softprob",
-        num_class=3,
-        eval_metric="mlogloss",
-        n_estimators=600,
-        max_depth=4,
-        learning_rate=0.05,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        min_child_weight=5,
-        reg_lambda=1.0,
-        early_stopping_rounds=40,
-        random_state=42,
-        n_jobs=-1,
-    )
+    Build the XGBClassifier from DEFAULT_HYPERPARAMS, with optional per-key
+    overrides. `build_model()` (no arguments) is exactly the production model;
+    `build_model(max_depth=6, learning_rate=0.03)` is how the tuner tries a
+    candidate hyperparameter set without touching the defaults.
+    """
+    params = {**DEFAULT_HYPERPARAMS, **overrides}
+    return XGBClassifier(**params)
 
 
 def train():
