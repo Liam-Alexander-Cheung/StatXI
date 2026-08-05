@@ -1,0 +1,53 @@
+{
+  "_note": "PROPOSAL from tune_weights.random_search. NOT auto-applied to training. Validation = pre-2016 walk-forward log-loss; the honest test is the 2016+ comparison in tune_weights final_report (A4).",
+  "config": {
+    "tiers": {
+      "friendly": 0.6908676031300728,
+      "major_finals": 1.0,
+      "major_qual": 0.8239065209619886,
+      "confed_2nd": 0.9074262707582703,
+      "regional_champ": 0.7982103444178722,
+      "regional_qual": 0.22592037770588919,
+      "multisport": 0.5840621970506936,
+      "default": 0.14679944944881762
+    },
+    "half_life_days": 4058.0115694355395,
+    "min_weight": 0.2866048284563433
+  },
+  "validation": {
+    "log_loss": 0.9221522833227824,
+    "acc": 0.5672316384180791,
+    "n": 11505
+  },
+  "baseline_validation": {
+    "log_loss": 0.9223934867100947,
+    "acc": 0.5663624511082138
+  },
+  "val_log_loss_improvement": 0.00024120338731226099,
+  "search": {
+    "seed": 42,
+    "k": 200,
+    "is_baseline": false
+  },
+  "held_out_2016plus": {
+    "n": 281,
+    "baseline": {
+      "acc": 0.484,
+      "log_loss": 1.0547,
+      "brier": 0.6335
+    },
+    "proposed": {
+      "acc": 0.5089,
+      "log_loss": 1.0449,
+      "brier": 0.6289
+    },
+    "log_loss_diff": {
+      "point": -0.0098,
+      "ci95_lo": -0.0246,
+      "ci95_hi": 0.0054,
+      "n_boot": 10000
+    },
+    "verdict": "WITHIN NOISE \u2014 the CI straddles 0; no real held-out gain.",
+    "recommendation": "KEEP BASELINE (proposed not distinguishable from it)"
+  }
+}

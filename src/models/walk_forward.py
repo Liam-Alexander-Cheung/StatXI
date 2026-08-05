@@ -65,7 +65,12 @@ def backtest_editions(df: pd.DataFrame) -> list[tuple[str, pd.Timestamp]]:
 
 def _sample_weights(df: pd.DataFrame, ref_date: pd.Timestamp) -> np.ndarray:
     """Per-match training weight = recency (to this tournament) x importance —
-    the same weighting train_wdl uses, but referenced to each tournament's start."""
+    the same weighting train_wdl uses, but referenced to each tournament's start.
+
+    This is the DEFAULT weighting. It is passed as `weight_fn` below so an
+    experiment (e.g. the weighting auto-tuner in tune_weights.py) can inject an
+    alternative weighting without duplicating any of the fit/backtest machinery.
+    A weight_fn takes (df, ref_date) and returns one weight per row of df."""
     return df.apply(
         lambda r: recency_weight(r["date"], ref_date, half_life_days=3650) * r["importance"],
         axis=1,
@@ -73,9 +78,13 @@ def _sample_weights(df: pd.DataFrame, ref_date: pd.Timestamp) -> np.ndarray:
 
 
 def _fit_before(df: pd.DataFrame, t_start: pd.Timestamp, feature_columns: list[str],
-                val_days: int):
+                val_days: int, weight_fn=_sample_weights):
     """Fit a fresh model on all matches before `t_start`, early-stopping on the
-    trailing `val_days` window. Returns (model, n_train, n_val)."""
+    trailing `val_days` window. Returns (model, n_train, n_val).
+
+    `weight_fn(train_df, t_start) -> weights` is the per-match training weight,
+    defaulting to `_sample_weights`. It is the single injection point the
+    weighting tuner uses; everything else (split, early stopping, model) is fixed."""
     val_start = t_start - pd.Timedelta(days=val_days)
     train = df[df["date"] < val_start]
     val = df[(df["date"] >= val_start) & (df["date"] < t_start)]
@@ -83,7 +92,7 @@ def _fit_before(df: pd.DataFrame, t_start: pd.Timestamp, feature_columns: list[s
     model = build_model()
     model.fit(
         train[feature_columns], train[LABEL_COLUMN].map(LABEL_TO_INT),
-        sample_weight=_sample_weights(train, t_start),
+        sample_weight=weight_fn(train, t_start),
         eval_set=[(val[feature_columns], val[LABEL_COLUMN].map(LABEL_TO_INT))],
         verbose=False,
     )
@@ -91,19 +100,22 @@ def _fit_before(df: pd.DataFrame, t_start: pd.Timestamp, feature_columns: list[s
 
 
 def walk_forward(df: pd.DataFrame, feature_columns: list[str] = FEATURE_COLUMNS,
-                 val_days: int = VAL_DAYS):
+                 val_days: int = VAL_DAYS, weight_fn=_sample_weights):
     """
     Run the backtest. Returns (per_tournament, pooled) where per_tournament is a
     list of dicts (one per edition) and pooled holds the concatenated truth /
     model-probabilities / baseline predictions across every backtested match, so
     the caller can compute an exact pooled score.
+
+    `weight_fn` is the per-match training weighting (default `_sample_weights`),
+    forwarded to each fold's fit so the tuner can backtest an alternative weighting.
     """
     rows = []
     pool = {"y": [], "proba": [], "form_fav": [], "base": []}
 
     for edition, t_start in backtest_editions(df):
         T = df[df["edition"] == edition]
-        model, n_tr, n_val = _fit_before(df, t_start, feature_columns, val_days)
+        model, n_tr, n_val = _fit_before(df, t_start, feature_columns, val_days, weight_fn)
 
         proba = model.predict_proba(T[feature_columns])
         pred = np.array([CLASS_NAMES[i] for i in proba.argmax(axis=1)])

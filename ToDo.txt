@@ -6,8 +6,14 @@ WHERE THINGS STAND (end of this session)
     FIFA rating_gap via country pools (TRACK 2) = 20 features. walk_forward.py is
     the honest per-tournament backtest; rating_gap adds a modest, consistent
     lift on a broader 738-match test. Everything is committed + documented.
+  - WEIGHTING auto-tuner: BUILT + run (branch model-tuning). Finding: the hand-tuned
+    per-match weighting is near-optimal — 200-trial leakage-safe search moved
+    validation log-loss by -0.0002, and the apparent +2.5pp test-accuracy gain is
+    WITHIN NOISE (bootstrap CI [-0.025,+0.005]). Kept the baseline; nothing promoted.
+    Next weighting-family lever is XGB hyperparameters (Phase B, see NEXT SESSION).
   - Poisson SCORELINE model: still a STUB — the entire second half of the project
-    (the classical-stats deliverable) is untouched.
+    (the classical-stats deliverable) is untouched. Also now the agreed home for
+    DRAW modelling (see the deferred draw note under item 3).
   - BOOKMAKER-ODDS benchmark: NOT acquired. This is half of the judges' hook
     (agents.md: compare vs (1) naive baseline [have it] AND (2) bookmaker implied
     probabilities [missing]). Biggest gap in the actual argument.
@@ -39,6 +45,35 @@ NEXT SESSION — prioritised
          to the Poisson rate — the TRACK 2 finding suggests rating_gap carries
          real signal, so test it against a plain attack/defence baseline rather
          than assuming. Big chunk; probably its own multi-session workstream.
+         - DRAWS ARE POISSON'S JOB (investigated 2026-08-05, deferred to here).
+           The WDL model almost never predicts draws, but this is NOT a bug to
+           "fix" in XGBoost: its draw probabilities are already ~perfectly
+           calibrated (mean P(D)=0.233 vs actual draw rate 0.233, tracks the
+           diagonal per-bin). It just never picks draw as the argmax because a
+           correctly-calibrated P(D) tops out at ~0.389 — even in coin-flip games
+           (|P(H)-P(A)|<3%) the actual split is H .336/D .303/A .361, so draw is
+           never the plurality. Forcing more draws (class weights / lean-to-draw
+           rule) would LOWER accuracy and worsen log-loss — do not do it. Also:
+           knockout matches decided on penalties are stored as DRAWS (full-time
+           pre-shootout score, e.g. England 1-1 Italy, Argentina 3-3 France), so
+           "discard draws for penalty games" is impossible pre-match and wrong
+           under the 1X2 target. The real fix = model the score distribution and
+           let draws fall out, with the Dixon-Coles low-score correction (which
+           exists precisely because independent Poisson under-predicts 0-0/1-1).
+           A separate "who advances" (2-way, ~50/50 shootout) target is the home
+           for knockout resolution, needed by the Monte Carlo simulator.
+
+  [ ] 4. XGB HYPERPARAMETER TUNER (Phase B, agreed follow-on to the weighting tuner).
+         Build AFTER the weighting tuner (done), as a SEPARATE module that does not
+         run simultaneously — src/models/tune_hyperparams.py. Same honesty protocol
+         already proven in tune_weights.py: optimise pre-2016 walk-forward validation
+         LOG-LOSS, never score a 2016+ match during the search, bootstrap-CI the
+         held-out 2016+ difference, propose-don't-overwrite. Search build_model()'s
+         params (max_depth, learning_rate, subsample, colsample_bytree,
+         min_child_weight, reg_lambda, n_estimators bound). Reuse _fit_before but
+         make its model builder injectable too. Random search by default; Optuna is
+         an OPTIONAL new dependency needing sign-off (precedent: rapidfuzz). This is
+         the higher-leverage knob the weighting turned out NOT to be.
 
   [ ] Lower priority (when convenient):
         - Human review of ratings_match_review_queue.csv (153 medium-confidence

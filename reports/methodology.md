@@ -1187,3 +1187,94 @@ nations with a tournament squad are covered; ~500 of the covered matches still
 lack ≥11 rated players at their edition and stay NaN; and `train_wdl`'s single
 2014 cutoff still can't use `rating_gap` at all (0 training rows) — walk-forward
 or a late split is required, exactly as the retrain-readiness analysis predicted.
+
+## Draw prediction: a well-calibrated model that (correctly) never picks "draw"
+
+A natural question — "why does the model almost never predict a draw?" — turned
+into one of the clearest teaching results in the project, and a reminder that
+*accuracy* is the wrong lens.
+
+**The model's draw probabilities are already ~perfect.** On the 2016+ test the mean
+predicted `P(draw)` is **0.233** against an actual draw rate of **0.233**, and the
+draw column tracks the diagonal per bin (predicted 0.31 → actual 0.31). Nothing is
+mis-estimated. The reason draw is almost never the top-1 pick is purely structural:
+a correctly-calibrated `P(draw)` **tops out at ~0.389**, so it essentially never
+exceeds both `P(home)` and `P(away)` — draw is the argmax only **19 / 9904** times.
+Even in coin-flip fixtures (`|P(H)−P(A)| < 3%`) the actual split is **H .336 / D .303
+/ A .361** — draw is never the plurality *anywhere* in probability space. So a
+"lean toward draw on close games" rule cannot raise accuracy; it would trade correct
+H/A calls for wrong D calls and *lower* it. Forcing draws (class weights) would only
+inflate `P(draw)` above the true 24% and worsen log-loss/calibration.
+
+**Penalty knockouts are already draws.** A separate proposal — "discard draws for
+matches that go to penalties" — rests on a data misconception: the score column is
+the full-time (post-extra-time, pre-shootout) result, so every shootout game is
+stored as a **draw** (verified: England 1-1 Italy, Argentina 3-3 France, Russia 1-1
+Spain). There is also no pre-match way to know which games go to penalties (it is a
+*consequence* of the draw, not a predictor). Under the 1X2 target those labels are
+correct.
+
+**Decision:** do nothing to the WDL model on draws. The right home is the (still-stub)
+Poisson scoreline model, where draws fall out of the score distribution and the
+Dixon-Coles low-score correction exists precisely because independent Poisson
+under-predicts 0-0/1-1. A separate 2-way "who advances" target (with a ~50/50
+shootout) is where knockout resolution belongs, for the Monte Carlo simulator.
+Deferred in ToDo.txt next to the Poisson item.
+
+## Weighting auto-tuner: is the hand-tuned match weighting beatable? (honestly)
+
+The per-match training weight is `recency(date) × importance(tournament)` — a
+hand-chosen recency half-life (3650 days), a min-weight floor (0.05), and 8 tiered
+importance multipliers (Friendly 0.3 … World Cup 1.0 … default 0.25). The idea was
+to stop hand-guessing these and *search* for better ones. The stated intuition —
+"a search has a ~100% chance of raising accuracy" — is the overfitting trap: a
+search only guarantees improving the metric on the data it optimises against. Done
+against the held-out test that would silently manufacture a fake number. So the
+tuner (`src/models/tune_weights.py`) is built around three rules: optimise
+**validation log-loss** (not accuracy); the search **never scores a 2016+ match**
+(candidates are ranked by a leakage-safe walk-forward over pre-2016 rolling-origin
+folds, 11,505 matches); and the search **proposes**, it does not silently overwrite
+the production weights. The harness is the existing `walk_forward.py`, minimally
+refactored so the weighting is an injected `weight_fn` (verified byte-identical to
+the old output for the default; the baseline `WeightConfig` reproduces
+`importance_weight` on all 140 tournaments and the sample weights to full precision).
+
+**Result 1 — the validation objective is nearly flat.** 200 random configs
+(baseline seeded as trial 0; `major_finals` anchored at 1.0 as the scale reference)
+moved validation log-loss by **−0.0002** at best (0.9224 → 0.9222). Wildly different
+weightings — the winner had Friendly 0.69, Confederations 0.91, default 0.15,
+min-weight 0.29 vs the baseline's 0.30 / 0.55 / 0.25 / 0.05 — produce near-identical
+pre-2016 log-loss. The weighting is a **low-leverage knob**: the model barely cares
+how the training data is weighted.
+
+**Result 2 — the apparent test gain is noise.** Run once on the held-out 2016+
+tournament backtest (n=281), the "winning" config *looks* better:
+
+| metric | baseline | proposed | Δ |
+|---|---|---|---|
+| accuracy | 0.484 | 0.509 | **+0.025** |
+| log-loss | 1.055 | 1.045 | −0.010 |
+| Brier | 0.633 | 0.629 | −0.005 |
+
+But a paired (per-match) bootstrap on the log-loss difference gives a 95% CI of
+**[−0.025, +0.005]** — it straddles zero. The +2.5pp accuracy is **within noise**.
+Tellingly, the *test* improvement (−0.010 log-loss) is larger than the *validation*
+improvement that selected the config (−0.0002): the signature of a lucky draw, not
+skill. This is the same lesson as the squad features (val +3.2pp → +1.1pp within
+noise) — and exactly what the "100% chance of raising accuracy" framing misses. Yes,
+the accuracy number went up; the bootstrap shows it isn't real.
+
+**Decision:** keep the hand-tuned baseline weighting. It is already near-optimal and
+the proposed alternative is (a) statistically indistinguishable on held-out data and
+(b) less interpretable (it inverts sensible tier orderings). No production code was
+changed; the proposal + its held-out verdict are recorded in
+`src/models/best_weight_config.json`. The result *is* the finding: a systematic,
+leakage-safe search plus an honest CI shows the weighting isn't a reproducible source
+of skill — which is a stronger claim for the write-up than a cherry-picked +2.5pp.
+
+**Caveats.** Validation is *general* pre-2016 match log-loss (the weighting is a
+global training-data choice), not major-tournament-specific — a design trade to keep
+the 2016+ majors fully held out. It is random search (not exhaustive) over ~9 dims.
+And this only tuned the *weighting*: the XGBoost hyperparameters are a separate,
+likely higher-leverage knob, deliberately left as the next tuner (Phase B) so any
+gain there can be attributed cleanly rather than tangled with the weighting.
