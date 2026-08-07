@@ -115,7 +115,7 @@ def walk_forward(df: pd.DataFrame, feature_columns: list[str] = FEATURE_COLUMNS,
     backtest an alternative weighting OR an alternative hyperparameter set.
     """
     rows = []
-    pool = {"y": [], "proba": [], "form_fav": [], "base": []}
+    pool = {"y": [], "proba": [], "form_fav": [], "base": [], "book": []}
 
     for edition, t_start in backtest_editions(df):
         T = df[df["edition"] == edition]
@@ -143,16 +143,23 @@ def walk_forward(df: pd.DataFrame, feature_columns: list[str] = FEATURE_COLUMNS,
             "log_loss": log_loss(y_int, proba, labels=CLASSES),
             "acc_form_fav": accuracy_score(y, form_fav),
         })
+        # Bookmaker de-vigged probs for this tournament, oriented to our home/away
+        # (build_matrix joined them as metadata). NaN on any match with no odds —
+        # kept NaN here and masked out at comparison time, never fabricated.
+        book_proba = T[["book_ph", "book_pd", "book_pa"]].to_numpy(dtype=float)
+
         pool["y"].append(y)
         pool["proba"].append(proba)
         pool["form_fav"].append(form_fav)
         pool["base"].append(base_proba)
+        pool["book"].append(book_proba)
 
     pooled = {
         "y": np.concatenate(pool["y"]),
         "proba": np.vstack(pool["proba"]),
         "form_fav": np.concatenate(pool["form_fav"]),
         "base": np.vstack(pool["base"]),
+        "book": np.vstack(pool["book"]),
     }
     return rows, pooled
 
@@ -183,6 +190,29 @@ def report(rows, pooled):
     print(f"{'brier':<16}{brier:>12.3f}{'-':>12}{brier_base:>12.3f}")
     print(f"\nmodel vs form-favourite:  accuracy {acc-acc_ff:+.3f}")
     print(f"model vs base-rate:       log-loss {ll-ll_base:+.3f}  (negative = better than no-skill)")
+
+    # --- bookmaker comparison, on the ODDS-COVERED subset only --------------
+    # Not every backtested tournament has odds (Euro 2016 / WC 2018 have none),
+    # and log-loss can't take NaN, so the model-vs-bookmaker comparison is made
+    # on exactly the matches that have a de-vigged price — and the model is
+    # re-scored on that SAME subset, so it's apples-to-apples.
+    book = pooled["book"]
+    covered = ~np.isnan(book).any(axis=1)
+    n_cov = int(covered.sum())
+    if n_cov == 0:
+        print("\n(no bookmaker odds cover any backtested tournament — skipping market comparison)")
+        return
+    yb, pb, bb = y_int[covered], proba[covered], book[covered]
+    pred_b = np.array([CLASS_NAMES[i] for i in pb.argmax(axis=1)])
+    predbk = np.array([CLASS_NAMES[i] for i in bb.argmax(axis=1)])
+    yb_str = y[covered]
+    print(f"\n{'-'*76}\nvs BOOKMAKER  (odds-covered subset, n={n_cov} of {len(y)})\n{'-'*76}")
+    print(f"{'metric':<16}{'model':>12}{'bookmaker':>12}")
+    print(f"{'accuracy':<16}{accuracy_score(yb_str, pred_b):>12.3f}{accuracy_score(yb_str, predbk):>12.3f}")
+    print(f"{'log-loss':<16}{log_loss(yb, pb, labels=CLASSES):>12.3f}{log_loss(yb, bb, labels=CLASSES):>12.3f}")
+    print(f"{'brier':<16}{multiclass_brier(yb, pb):>12.3f}{multiclass_brier(yb, bb):>12.3f}")
+    print("\n(lower log-loss/brier = better; the bookmaker is the strong "
+          "reference the model is measured against)")
 
 
 def main():

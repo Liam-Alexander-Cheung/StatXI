@@ -1357,3 +1357,130 @@ promoted. Proposals + held-out verdicts are recorded in `best_{weight,hyper,join
 **Next lever.** Both marginals and their honest combination are flat, so more tuning
 (Optuna, more trials) is low-value; the far higher-leverage work is better *features*
 and the bookmaker-odds benchmark, not squeezing the knobs.
+
+## Bookmaker-odds benchmark: the model-vs-market comparison
+
+This is the second half of the judges' hook (agents.md): the WDL model compared not
+only to naive baselines but to **bookmaker implied probabilities** — the sharpest
+publicly available forecast, and the honest ceiling for any 3-way football model. It
+took a long, instructive data-acquisition detour to build, and the detour itself is
+good material: it is a clean case study in "the data you need is not the data you can
+easily get", handled without fabricating anything.
+
+### Data sourcing: four dead ends before a workable one
+No free, reproducible source of historical **international** 1X2 odds exists. Checked,
+in order:
+- **Kaggle** (the project's usual channel): every odds dataset found is **club-league
+  only** (football-data.co.uk-style leagues, Oddsportal club scrapes). Zero coverage of
+  Euro/World Cup fixtures. So the ToDo's original football-data.co.uk plan was a
+  non-starter — that site has no internationals at all.
+- **FiveThirtyEight SPI** (`spi_matches_intl.csv`): would have been a clean *model*
+  benchmark (not the market), but 538 was shut down by Disney in 2023; the live API
+  redirects to ABC News and the GitHub CSV 404s. Dead.
+- **The Odds API**: real bookmaker odds, ToS-clean — but historical access is paid and
+  international coverage only reaches back to ~WC 2022 (misses Euro 2016/2020, WC 2018).
+- **Oddsportal** (full coverage, free): its results feed is **AES-encrypted** (base64
+  `ciphertext:iv`, key hidden in an obfuscated JS bundle). An automated scrape would
+  mean reverse-engineering that key — against the project's reproducibility bar, and the
+  environment's safety tooling blocked the key-extraction step anyway. Not pursued.
+
+**What worked:** a human browser export from Oddsportal's results pages. In a real
+browser the page decrypts client-side and renders normally, so a plain
+select-and-copy captures the odds — sidestepping the WAF, the encryption, and the
+key-extraction question entirely. Coverage obtained: **Euro 2020, Euro 2024, World Cup
+2022, World Cup 2026** plus their qualifiers (Euro 2016 and WC 2018 simply had no
+Oddsportal data). This is a human-in-the-loop acquisition step, documented as such.
+
+### Two real bugs the export exposed (both caught by sanity checks, not by "it ran")
+1. **CSS-class table-scraper misaligned odds and teams.** The first export used a
+   scraper extension that named columns by CSS class (`flex-center`, `ml-auto`, …) and
+   pulled the odds cells in a *different DOM order* than the team cells. Teams and scores
+   were correct; the two win-odds were scrambled relative to them, inconsistently. It
+   looked plausible until a **favourite-accuracy** check: the bookmaker's implied
+   favourite matched the actual winner only ~50% of the time on decisive games (should
+   be ~65%+), and San Marino showed as a 99% favourite at home to Denmark. Tested all 6
+   column permutations — none was consistent (the only high-accuracy one implied a mean
+   draw probability of 60%, nonsense). Verdict: not code-fixable; re-export needed.
+2. **A plain copy-paste fixed it, but the odds arrived American with the `+` stripped.**
+   Oddsportal's results table isn't real `<table>` markup, so a copy dumps one value per
+   line in strict reading order — reliably parseable by a small state machine
+   (`_parse_flat_paste`), and crucially the odds stay glued to the right team. But the
+   paste dropped the leading `+` on positive American prices (`+260` → `260`), and
+   `american_to_decimal` initially read a bare `260` as an already-decimal odd of 260.0,
+   silently crushing every favourite's probability toward 1.0 and erasing draws. Caught
+   by a **draw-calibration** check (predicted mean draw prob 7% vs actual 21%). The fix
+   keys on a fact true of every format seen: decimal odds always carry a `.`, so a bare
+   integer is unambiguously American with an implicit `+`. After the fix, predicted vs
+   actual draw rate matched to within 0.3pp.
+
+Both bugs share a lesson already central to this project: a data pipeline that "runs"
+can still be silently wrong; the guard is a **numeric sanity check against reality**
+(here, favourite accuracy and draw calibration), not a green checkmark.
+
+### De-vig, crosswalk, and orientation (`src/odds.py`, `build_odds_schema.py`)
+- **De-vig = multiplicative normalisation.** Implied prob = 1/decimal-odds; the three
+  sum to >1 by the bookmaker's margin (the "overround"/vig), so divide each by the sum
+  to rescale to 1. Textbook default; Shin's method (margin weighted toward favourites)
+  noted as a heavier alternative, not needed for a baseline.
+- **Team-name crosswalk** (`_TEAM_ALIASES`): only ~10 Oddsportal spellings differ from
+  our canonical names, but two are traps that a fuzzy match gets **wrong** — "Ireland"
+  scores 1.00 against "Northern Ireland" (substring) yet means the **Republic**
+  (confirmed by checking who "Ireland" actually played: France/Greece/Gibraltar =
+  Republic's group); "D.R. Congo" fuzzy-matches "Congo". So aliases are hand-verified
+  and anything unrecognised goes to a review queue — never an auto-accepted best guess,
+  the same discipline as the player-rating matcher.
+- **Date-tolerant join + orientation.** Oddsportal timestamps in the viewer's timezone,
+  so its dates run ~1 day off ours; matches are joined by the unordered team pair within
+  ±3 days, not on an exact date. For neutral-venue ties the source's "home" need not be
+  ours, so the (P_home, P_draw, P_away) vector is re-oriented to our home/away by team
+  identity. Result: **2,184 of 2,205** odds rows resolve to a DB fixture; 0 unresolved
+  names, and the only unmatched fixtures are genuinely absent from our data (the
+  abandoned/awarded Russia–Poland 2022 WCQ, one Congo–Niger date gap). Odds are stored
+  as **metadata** in the training matrix (`book_ph/pd/pa`), never as features — feeding
+  the market's own probability to the model would be circular.
+
+### WC 2026 data refresh
+The user asked to include WC 2026 (the most recent tournament). Our `results.csv`
+(martj42) had WC 2026 only as unplayed future fixtures. Refreshed it (85 → 102 scored
+WC 2026 matches), but the martj42 snapshot (2026-07-17) still had the **final and
+3rd-place** unscored. Filled just those two from a daily-updated mirror
+(`patateriedata`): final **Spain 1–0 Argentina**, 3rd place **France 4–6 England**
+(the 6-4 flagged for human verification). Did *not* switch sources wholesale — the
+mirror labels the World Cup "World Cup" not "FIFA World Cup" and lacks the `city`
+column, which would break the tournament-label logic and importance weights built on
+martj42's vocabulary.
+
+### Results — the honest headline
+Two evaluation surfaces, both scoring the model against the market on exactly the
+matches that have a de-vigged price (`src/models/broader_eval.py` for the broad set;
+`walk_forward.py` / `evaluate_wdl.py` gained a bookmaker column for the finals/cutoff
+views). The model side is always scored leakage-safely (annual walk-forward: a fresh
+model fit before each year, predicting that year's covered matches).
+
+**Broad covered set (n=2,184 internationals, Euro 2020/2024 + WC 2022/2026 + qualifiers):**
+
+| metric | model | bookmaker | form-fav | base-rate |
+|---|---|---|---|---|
+| accuracy | 0.630 | **0.654** | 0.623 | — |
+| log-loss | 0.826 | **0.762** | — | 1.054 |
+| Brier | 0.482 | **0.443** | — | 0.636 |
+
+Paired per-match bootstrap on the log-loss difference:
+- **model − bookmaker = +0.0645, 95% CI [+0.053, +0.076]** — the bookmaker is sharper,
+  and the gap is real (CI clears 0), not noise. This is the *expected* result:
+  bookmakers are the ~52–58% skill ceiling, and beating them is not the goal.
+- **model − base-rate = −0.2273, 95% CI [−0.248, −0.206]** — the model beats the
+  no-skill forecast decisively. This is the bar the model *must* clear, and does.
+
+**Finals-only walk-forward (odds-covered subset n=153 of the 281 backtested finals):**
+model accuracy 0.575 vs bookmaker 0.569 (model marginally ahead on raw accuracy), but
+log-loss 1.015 vs 0.970 and Brier 0.606 vs 0.575 (bookmaker better calibrated). On the
+small, evenly-matched finals set the model is competitive on top-1 picks; the market's
+edge is in calibration.
+
+**The story for the write-up:** the model is well-calibrated (held-out ECE 0.026),
+beats every naive baseline on both accuracy and log-loss, and lands a small but
+statistically real margin *behind* the bookmaker on probabilistic sharpness — while
+being competitive on raw accuracy over the finals. That is exactly the credible,
+defensible position a rigorous model should report: near the market, clearly above
+no-skill, with the gap honestly quantified by a bootstrap CI rather than hand-waved.

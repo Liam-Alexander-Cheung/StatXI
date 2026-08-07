@@ -35,6 +35,7 @@ from src.data_pipeline import (
     load_tournament_editions,
     match_tournament_edition,
 )
+from src.odds import load_match_odds
 from src.features import (
     rolling_form,
     goal_trend,
@@ -94,9 +95,14 @@ FEATURE_COLUMNS = [
 # `edition` is the resolved tournament-edition label (e.g. "World Cup 2014") or
 # blank — kept so a squad-feature value in a row can be traced back to the exact
 # squad it came from during verification.
+# `book_ph/pd/pa` are the de-vigged bookmaker probabilities (src/odds.py),
+# joined on for the model-vs-market BENCHMARK only. They are METADATA, never
+# features: feeding the market's own probability to the model would be circular
+# (leaking the very thing we're trying to beat). NaN where no odds exist.
 METADATA_COLUMNS = ["date", "home_team", "away_team", "tournament", "edition",
                     "home_pool_rating", "away_pool_rating",  # absolute ratings, kept for traceability
-                    "home_score", "away_score"]
+                    "home_score", "away_score",
+                    "book_ph", "book_pd", "book_pa"]  # de-vigged bookmaker probs (benchmark only)
 
 LABEL_COLUMN = "result"  # "H" (home win) / "D" (draw) / "A" (away win)
 
@@ -159,6 +165,7 @@ def build_training_matrix(
     squads: pd.DataFrame | None = None,
     editions: dict | None = None,
     pool_index: dict | None = None,
+    odds: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """
     Build the (features + label) table from cleaned match data.
@@ -270,8 +277,19 @@ def build_training_matrix(
             print(f"  {n}/{total} rows  ({elapsed:.0f}s, "
                   f"~{elapsed/n*total:.0f}s projected total)", flush=True)
 
-    # Column order: metadata, then features, then label — readable left-to-right
-    return pd.DataFrame(records, columns=METADATA_COLUMNS + FEATURE_COLUMNS + [LABEL_COLUMN])
+    df = pd.DataFrame(records)
+
+    # Join the de-vigged bookmaker probabilities as METADATA (benchmark only,
+    # never features). load_match_odds resolves each odds row to OUR match
+    # identity + orientation, so the (date, home_team, away_team) keys line up
+    # exactly; a left join leaves NaN wherever no odds exist. Resolved against
+    # the SAME cleaned `matches` we're building from, so keys can't drift.
+    if odds is None:
+        odds = load_match_odds(matches=matches, write_queues=False)
+    df = df.merge(odds, on=["date", "home_team", "away_team"], how="left")
+
+    # Column order: metadata (incl. book_*), then features, then label.
+    return df.reindex(columns=METADATA_COLUMNS + FEATURE_COLUMNS + [LABEL_COLUMN])
 
 
 if __name__ == "__main__":

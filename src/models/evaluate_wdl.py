@@ -92,6 +92,28 @@ def evaluate_block(name: str, df: pd.DataFrame, model: XGBClassifier,
     print("model's predicted-class mix: " +
           "  ".join(f"{c}={picked.get(c,0):.3f}" for c in CLASS_NAMES))
 
+    # --- bookmaker comparison, on the odds-covered subset of THIS slice -------
+    # book_ph/pd/pa are metadata joined by build_matrix (NaN where no odds).
+    # Compare model vs market on exactly the matches that have a de-vigged
+    # price, re-scoring the model on that same subset for a fair head-to-head.
+    if {"book_ph", "book_pd", "book_pa"}.issubset(df.columns):
+        book = df[["book_ph", "book_pd", "book_pa"]].to_numpy(dtype=float)
+        covered = ~np.isnan(book).any(axis=1)
+        n_cov = int(covered.sum())
+        if n_cov:
+            yb, pb, bb = y_int[covered], proba[covered], book[covered]
+            yb_str = y_str[covered]
+            pred_m = np.array([INT_TO_LABEL[i] for i in pb.argmax(axis=1)])
+            pred_bk = np.array([INT_TO_LABEL[i] for i in bb.argmax(axis=1)])
+            print(f"\n--- vs BOOKMAKER (odds-covered subset, n={n_cov} of {len(df)}) ---")
+            print(f"{'metric':<12}{'model':>12}{'bookmaker':>12}")
+            print(f"{'accuracy':<12}{accuracy_score(yb_str, pred_m):>12.3f}"
+                  f"{accuracy_score(yb_str, pred_bk):>12.3f}")
+            print(f"{'log-loss':<12}{log_loss(yb, pb, labels=CLASSES):>12.3f}"
+                  f"{log_loss(yb, bb, labels=CLASSES):>12.3f}")
+            print(f"{'brier':<12}{multiclass_brier(yb, pb):>12.3f}"
+                  f"{multiclass_brier(yb, bb):>12.3f}")
+
     return proba, y_str, y_int
 
 

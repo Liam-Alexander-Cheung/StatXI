@@ -34,16 +34,34 @@ NEXT SESSION — prioritised
          function in walk_forward.py) and what it reports (per-feature-set acc +
          CI + log-loss on the covered 2021+ block).
 
-  [ ] 2. BOOKMAKER-ODDS BENCHMARK (the missing half of the judges' hook). Without
-         it we can't make the project's central claim. Steps:
-           - find a historical odds source covering the backtest tournaments
-             (football-data.co.uk has free CSVs w/ odds for many comps; or an
-             odds API). Watch coverage of internationals specifically.
-           - convert decimal odds -> implied probs, DE-VIG (normalise out the
-             bookmaker margin) -> a 3-way prob vector per match.
-           - add as a baseline in evaluate_wdl / walk_forward alongside form-fav
-             and base-rate; compare log-loss + accuracy. THIS is the headline
-             comparison the whole project is built around.
+  [x] 2. BOOKMAKER-ODDS BENCHMARK (the missing half of the judges' hook) — DONE.
+         Source: hand-exported from Oddsportal (Kaggle/football-data.co.uk are
+         CLUB-only; 538 dead; Odds API paid+partial; Oddsportal feed AES-encrypted
+         -> human browser copy-paste is the workable, reproducible path). Covers
+         Euro 2020/2024 + WC 2022/2026 + qualifiers (no Euro2016/WC2018 data
+         exists). Pipeline: build_odds_schema.py (flat-paste parser + match_odds
+         table) -> src/odds.py (american_to_decimal, devig via multiplicative
+         normalisation, team crosswalk w/ the Ireland=Republic trap, date-tolerant
+         join + orientation) -> build_matrix.py joins book_ph/pd/pa as METADATA
+         (never features). 2184/2205 odds rows resolved.
+         RESULT (broad, n=2184, src/models/broader_eval.py): model log-loss 0.826
+         vs bookmaker 0.762 (model-book +0.0645, CI [+.053,+.076] -> bookmaker
+         genuinely sharper, expected); model beats base-rate -0.227 (CI
+         [-.248,-.206]). Model acc 0.630 vs book 0.654. On finals-only (n=153)
+         model matches book on accuracy (0.575 vs 0.569), book better calibrated.
+         Bookmaker column also added to walk_forward.py + evaluate_wdl.py. Two
+         real bugs found+fixed en route (CSS-scraper odds/team misalignment; bare
+         American-int parse) — both caught by favourite-accuracy / draw-calibration
+         sanity checks, documented in methodology.md. WC2026 results refreshed from
+         martj42 + 2 knockout scores patched from patateriedata mirror.
+         LEFTOVER (minor): verify the WC2026 3rd-place score (France 4-6 England,
+         from the mirror — unusual). Euro2016/WC2018 have no odds, permanently.
+
+  [~] 1b. NOTE re item 1 (broader-eval module): src/models/broader_eval.py now
+         EXISTS (built for the bookmaker benchmark: annual walk-forward over the
+         odds-covered block + bootstrap CIs). The rating_gap ablation on the
+         broader block from wf_ablation_pool.py is still NOT promoted into it —
+         that per-feature-set comparison remains the open part of item 1.
 
   [ ] 3. POISSON SCORELINE MODEL (the untouched classical-stats half). Still a
          stub. Fit attack/defence strengths + Monte Carlo. Open design question,
