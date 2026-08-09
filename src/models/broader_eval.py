@@ -42,9 +42,46 @@ from src.models.build_matrix import FEATURE_COLUMNS, LABEL_COLUMN
 from src.models.train_wdl import load_matrix, build_model, LABEL_TO_INT
 from src.models.walk_forward import _fit_before, VAL_DAYS, CLASSES, CLASS_NAMES
 from src.models.evaluate_wdl import form_favourite_pred, multiclass_brier
-from src.models.tune_common import per_match_logloss, bootstrap_diff_ci
+from src.models.tune_common import per_match_logloss, bootstrap_diff_ci, pooled_metrics
 
 BOOK_COLS = ["book_ph", "book_pd", "book_pa"]
+
+# --- Ablation feature GROUPS -------------------------------------------------
+# The per-feature-set ablation isolates how much each engineered group actually
+# buys us on the broad covered block (ToDo item 2). The groups are listed by
+# name (never sliced by index) and asserted to partition FEATURE_COLUMNS below,
+# so if a new feature is ever added to build_matrix WITHOUT being placed in a
+# group here, this module fails loudly rather than silently dropping it from the
+# ablation — the same never-drift discipline the leakage guards use.
+BASE_FEATURES = [
+    "neutral", "importance",
+    "home_form", "away_form",
+    "home_gs", "home_gc", "away_gs", "away_gc",
+    "h2h",
+]
+SQUAD_FEATURES = [
+    "home_mean_age", "away_mean_age",
+    "home_squad_size", "away_squad_size",
+    "home_club_hhi", "away_club_hhi",
+    "home_same_club_pair_ratio", "away_same_club_pair_ratio",
+    "home_largest_club_bloc", "away_largest_club_bloc",
+]
+RATING_FEATURES = ["rating_gap"]
+
+assert set(BASE_FEATURES + SQUAD_FEATURES + RATING_FEATURES) == set(FEATURE_COLUMNS), (
+    "ablation feature groups don't partition FEATURE_COLUMNS — a feature was added "
+    "to build_matrix but not assigned to a group in broader_eval.py"
+)
+
+# The four feature sets compared in the ablation. "full" reuses FEATURE_COLUMNS
+# verbatim (same identity AND order) so its numbers match the headline report()
+# and walk_forward's official model exactly, rather than an order-shuffled twin.
+FEATURE_SETS = {
+    "base":         BASE_FEATURES,
+    "base+squad":   BASE_FEATURES + SQUAD_FEATURES,
+    "base+rating":  BASE_FEATURES + RATING_FEATURES,
+    "full":         FEATURE_COLUMNS,
+}
 
 
 def covered(df: pd.DataFrame) -> pd.DataFrame:
@@ -154,10 +191,70 @@ def report(rows, pooled):
           f"\n   (<0 => model beats no-skill; the bar the model MUST clear)")
 
 
+def _paired_ci(pooled_added: dict, pooled_without: dict):
+    """Paired-bootstrap CI on the per-match log-loss difference between two
+    feature sets scored on the IDENTICAL covered block.
+
+    `pooled_added` includes the feature group under test; `pooled_without` omits
+    it. The mean of (added - without) is negative when the group LOWERS log-loss,
+    i.e. improves the model. Because both runs scored the same covered rows in the
+    same order (feature columns don't change which rows are scored), the per-match
+    contributions pair 1:1 — asserted here so a future refactor that breaks the
+    alignment can't silently produce a meaningless CI."""
+    assert np.array_equal(pooled_added["y"], pooled_without["y"]), (
+        "paired ablation CI requires row-aligned pooled results — the two feature "
+        "sets scored different covered rows"
+    )
+    d = per_match_logloss(pooled_added) - per_match_logloss(pooled_without)
+    return bootstrap_diff_ci(d)
+
+
+def ablation_report(results: dict):
+    """Per-feature-set accuracy/log-loss/brier table + paired-CI contrasts that
+    isolate each engineered group's marginal contribution on the broad covered
+    block. `results` maps feature-set name -> (rows, pooled) from
+    annual_walk_forward, all on the same covered set."""
+    print(f"\n{'='*72}\nFEATURE-SET ABLATION  (broad covered block, annual walk-forward)\n{'='*72}")
+    print(f"{'feature set':<16}{'n':>7}{'acc':>10}{'log-loss':>12}{'brier':>10}")
+    for name in FEATURE_SETS:
+        _, pooled = results[name]
+        m = pooled_metrics(pooled)
+        print(f"{name:<16}{len(pooled['y']):>7}{m['acc']:>10.3f}"
+              f"{m['log_loss']:>12.3f}{m['brier']:>10.3f}")
+
+    # Each contrast = (set WITH the group) minus (same set WITHOUT it), so the
+    # group's marginal value is measured both alone (on base) and on top of the
+    # other group — a within-noise result on one but not the other is itself a
+    # finding worth reporting.
+    contrasts = [
+        ("rating_gap | no squad",     "base+rating", "base"),
+        ("rating_gap | squad present", "full",        "base+squad"),
+        ("squad | no rating",         "base+squad",  "base"),
+        ("squad | rating present",    "full",        "base+rating"),
+    ]
+    print(f"\n{'-'*72}\nMARGINAL LIFT  (paired per-match log-loss diff: with - without)\n{'-'*72}")
+    print("(<0 => adding the feature group lowers log-loss = improves the model;\n"
+          " a CI straddling 0 means the lift is within noise on this block)\n")
+    for label, added, without in contrasts:
+        _, p_add = results[added]
+        _, p_wo = results[without]
+        point, lo, hi = _paired_ci(p_add, p_wo)
+        verdict = "within noise" if lo <= 0 <= hi else ("improves" if hi < 0 else "hurts")
+        print(f"{label:<26}{point:+.4f}  95% CI [{lo:+.4f}, {hi:+.4f}]  ({verdict})")
+
+
 def main():
     df = load_matrix()
-    rows, pooled = annual_walk_forward(df)
+
+    # One walk-forward per feature set, all on the same covered block. Reuse the
+    # full-feature run for the headline model-vs-market report so it isn't fit
+    # twice.
+    results = {name: annual_walk_forward(df, feature_columns=cols)
+               for name, cols in FEATURE_SETS.items()}
+
+    rows, pooled = results["full"]
     report(rows, pooled)
+    ablation_report(results)
 
 
 if __name__ == "__main__":

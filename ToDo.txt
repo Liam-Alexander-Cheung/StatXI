@@ -58,19 +58,31 @@ NEXT SESSION — prioritised
            A separate "who advances" (2-way, ~50/50 shootout) target is the home
            for knockout resolution, needed by the Monte Carlo simulator.
 
-  [ ] 2. FINISH TRACK 2 rating_gap ABLATION in broader_eval.py (small, high-value).
-         src/models/broader_eval.py now EXISTS (built this session for the
-         bookmaker benchmark: annual walk-forward over the odds-covered block +
-         bootstrap CIs). What's still missing from the original item: the
-         per-FEATURE-SET ablation (rating_gap on/off, squad on/off) on that broader
-         covered block, so the rating_gap lift is reproducible rather than a
-         scratchpad one-off (wf_ablation_pool.py). Add a feature-set loop + paired
-         CI to broader_eval; it already has the harness, just not the ablation.
+  [x] 2. FINISH TRACK 2 rating_gap ABLATION in broader_eval.py — DONE (2026-08-09).
+         Added a per-FEATURE-SET ablation to src/models/broader_eval.py: three
+         name-listed feature groups (base / squad / rating) asserted to PARTITION
+         FEATURE_COLUMNS (fails loudly if a new feature is added un-grouped), a
+         loop running the annual walk-forward for 4 sets (base, +squad, +rating,
+         full) on the identical covered block, and paired-bootstrap CIs isolating
+         each group's marginal log-loss lift (with - without, both alone on base
+         and on top of the other group). Rows pair 1:1 because feature columns
+         never change WHICH covered rows are scored — asserted via np.array_equal.
+         FINDING (n=2184, broad odds-covered block = mostly qualifiers/Nations
+         League): the scratchpad 738-match "+2.3-2.5pp rating_gap" DOES NOT
+         reproduce as a significant margin here — every contrast is WITHIN NOISE:
+           rating_gap|no squad      -0.0025  CI [-0.0069, +0.0020]
+           rating_gap|squad present +0.0010  CI [-0.0031, +0.0052]
+           squad|no rating          -0.0021  CI [-0.0053, +0.0010]
+           squad|rating present     +0.0014  CI [-0.0015, +0.0044]
+         Point estimates lean the right way alone (rating/squad each ~-0.002 ll)
+         but flip sign on top of each other; all CIs straddle 0. Honest read: on
+         the WIDE block the lift is marginal/noise, consistent with the tournament
+         backtest CIs. The earlier +2.3-2.5pp was block-specific, not general.
+         The ablation is now a committed, reproducible module, not a one-off.
 
   [ ] Lower priority (when convenient):
-        - Verify the WC2026 3rd-place score (France 4-6 England, from the
-          patateriedata mirror — unusually high; the final Spain 1-0 Argentina is
-          already confirmed correct). One row, not load-bearing.
+        - [x] WC2026 3rd-place score (France 4-6 England) CONFIRMED CORRECT by
+              Liam (watched live, 2026-08-09). No longer a data-integrity question.
         - Human review of ratings_match_review_queue.csv (153 medium-confidence
           links, gitignored/regenerable) — Liam's call each, per no-fabrication.
         - (c) captain-marker fix: build_squad_schema.py clean_player_name() only

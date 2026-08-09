@@ -1188,6 +1188,45 @@ lack ≥11 rated players at their edition and stay NaN; and `train_wdl`'s single
 2014 cutoff still can't use `rating_gap` at all (0 training rows) — walk-forward
 or a late split is required, exactly as the retrain-readiness analysis predicted.
 
+### Reproducing the ablation on the broad covered block (does the +2.3pp survive?)
+
+The `+2.3–2.5pp` above came from a scratchpad run on a **738-match** competitive
+block. To make it reproducible rather than a one-off, the per-feature-set
+ablation was promoted into `src/models/broader_eval.py` (`ablation_report`):
+three name-listed feature **groups** — `base` (9 match-level), `squad` (10),
+`rating` (`rating_gap`) — asserted to *partition* `FEATURE_COLUMNS` (the module
+fails loudly if a future feature is added without being assigned to a group), a
+loop running the leakage-safe annual walk-forward for four sets (base, +squad,
++rating, full) on the identical odds-covered block, and **paired-bootstrap CIs**
+on the per-match log-loss difference. The pairing is exact because a feature set
+changes only the *model*, never *which* covered rows are scored or their order —
+asserted with `np.array_equal` on the pooled truth vectors.
+
+**The lift does not reproduce as a significant margin on the wide block.** On the
+full odds-covered set (**n = 2,184**, dominated by qualifiers / Nations League),
+every contrast is within noise:
+
+| contrast (with − without) | Δ log-loss | 95% CI | verdict |
+|---|---|---|---|
+| `rating_gap` \| no squad | −0.0025 | [−0.0069, +0.0020] | within noise |
+| `rating_gap` \| squad present | +0.0010 | [−0.0031, +0.0052] | within noise |
+| squad \| no rating | −0.0021 | [−0.0053, +0.0010] | within noise |
+| squad \| rating present | +0.0014 | [−0.0015, +0.0044] | within noise |
+
+Both groups lean the right way *in isolation* (each ≈ −0.002 log-loss on top of
+`base`) but flip to a tiny positive on top of *each other*, and every CI straddles
+0. This is the honest correction to the 738-match headline: that block was
+favourable, not general. The wide-block result is instead **consistent with the
+tournament backtest** — the rating and squad features are marginal, and on a large
+enough, qualifier-heavy sample their lift is indistinguishable from noise (partly
+because a large share of qualifiers have no `rating_gap` at all, diluting it). The
+decision to keep all 20 features stands — none of them *hurt*, and `rating_gap`
+still carries the strongest isolated signal (r = 0.42) — but the write-up claim is
+now the sober one: *the engineered squad/rating features are a real but small,
+block-dependent source of skill, not a reliable multi-point accuracy gain.* That
+the peeked-block number shrank to noise under a wider, honestly-paired test is
+itself the kind of result the project's methodology exists to surface.
+
 ## Draw prediction: a well-calibrated model that (correctly) never picks "draw"
 
 A natural question — "why does the model almost never predict a draw?" — turned
