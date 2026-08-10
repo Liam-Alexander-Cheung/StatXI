@@ -1666,3 +1666,40 @@ sub-problem" thesis predicts — and the write-up headline: *the classical-stati
 model is significantly sharper on the broad set and fully competitive with both the
 ML model and the market on the tournaments themselves, demonstrated with paired
 bootstrap CIs rather than asserted.*
+
+### Design idea (NOT yet built — hypothesis for the webapp "AI insight")
+Phase 4 shows model strength is *block-dependent*: Poisson dominates the broad
+block, the two converge on finals where XGBoost's squad/`rating_gap` features
+populate. That suggests a **stage-aware router** for the webapp's planned "AI
+insight" panel: serve the Poisson WDL on most matches (qualifiers, group stage,
+friendlies — where it is significantly sharper), and hand over to XGBoost on the
+late-knockout matches (finals, semis) and any other category where it empirically
+exceeds Poisson. Rather than one model, present the *better* model per match type.
+
+**Why this is a research stub and not a build item — three honesty constraints:**
+1. **The routing boundary must be a leakage-safe, pre-match rule** (tournament
+   stage, or — more to the point — *whether the row even has squad/rating features
+   populated*), fixed on a validation split. It must NEVER be "pick whichever model
+   turned out to win this specific match": that is exactly the test-set peeking that
+   produced the +1.1pp→−1.1pp reversal documented in the tuning section. The router
+   decision has to be reproducible from information available at kickoff.
+2. **The current evidence is thin and metric-dependent.** On finals (n=153) XGBoost
+   wins *accuracy* (0.575 vs 0.536) but Poisson still leads (within noise) on
+   *log-loss/brier*, and the Poisson−XGBoost difference there is within noise. So
+   "XGBoost handles finals" is true for the top-1 pick but not clearly for the
+   probability quality — which model to route to depends on which metric the panel
+   optimises. That needs a bigger finals sample and a pre-registered metric.
+3. **A hard router is only one option.** A **calibrated blend** (a weighted average
+   of the two probability vectors, weight fit on validation) frequently beats either
+   model alone and sidesteps a brittle either/or boundary — it should be tested as
+   the baseline the router must beat.
+
+The real driver to investigate is probably **feature availability**, not "finals"
+per se: XGBoost closes the gap exactly when its squad/rating columns are non-NaN.
+So the cleanest router might key on that directly. Open questions to settle before
+building: which stages/categories (group vs QF vs SF vs final; favourite vs
+underdog; feature-populated vs not) each model actually wins, on what metric, with
+paired CIs — and whether a blend beats routing. Until then the "AI insight" panel
+should show a single honest model (Poisson, the broad-block winner), never a
+routed/blended number dressed up as validated. Ties into the unbuilt "AI insight"
+frontend item — build it only with real, validated numbers.

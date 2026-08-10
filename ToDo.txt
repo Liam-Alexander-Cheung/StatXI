@@ -114,6 +114,29 @@ NEXT SESSION — prioritised
          backtest CIs. The earlier +2.3-2.5pp was block-specific, not general.
          The ablation is now a committed, reproducible module, not a one-off.
 
+  [ ] RESEARCH STUB (later): STAGE-AWARE MODEL ROUTER for the webapp "AI insight".
+         Idea (from the Phase 4 finding that model strength is block-dependent):
+         serve Poisson WDL on most matches (it's significantly sharper on the broad
+         block) and hand over to XGBoost on finals/semis + any category where XGB
+         empirically exceeds Poisson — show the BETTER model per match type, not one
+         model everywhere. Written up as a HYPOTHESIS in methodology.md (Poisson
+         section, "Design idea"). DO NOT build yet — open questions first:
+           - Router boundary MUST be a leakage-safe PRE-MATCH rule (tournament stage,
+             or better: whether the row even has squad/rating features populated),
+             fixed on a validation split. NEVER "pick whichever model won this match"
+             = test-set peeking (cf. the +1.1->-1.1pp tuning reversal). Reproducible
+             from kickoff-time info only.
+           - Evidence is thin + metric-dependent: on finals (n=153) XGB wins ACCURACY
+             (0.575 vs 0.536) but Poisson still leads log-loss/brier (within noise).
+             Need a bigger finals sample + a pre-registered metric to decide.
+           - Test a CALIBRATED BLEND (weighted avg of the two prob vectors, weight fit
+             on validation) as the baseline the hard router must beat.
+           - Probable real driver = FEATURE AVAILABILITY, not "finals" per se (XGB
+             closes the gap exactly when squad/rating cols are non-NaN) — router might
+             key on that directly. Map per-stage/favourite/feature-populated wins with
+             paired CIs before building. Ties into the "AI insight" frontend item
+             (build only with real validated numbers, never a routed/blended fake).
+
   [ ] Lower priority (when convenient):
         - [x] WC2026 3rd-place score (France 4-6 England) CONFIRMED CORRECT by
               Liam (watched live, 2026-08-09). No longer a data-integrity question.
