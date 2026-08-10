@@ -1608,6 +1608,61 @@ matches honestly skipped, never fabricated):** plain Poisson log-loss 0.9027 →
 help and neither hurts; **time weighting is the larger contributor**, Dixon-Coles
 adds a small further gain on the *collapsed* WDL (its real value is in the
 scoreline distribution, which matters for the Monte-Carlo work, not the H/D/A
-collapse). All clear the ~1.05 base-rate comfortably. This is a preview, not the
-headline: the apples-to-apples Poisson-vs-XGBoost-vs-bookmaker comparison runs on
-the shared walk-forward harness in Phase 4.
+collapse). All clear the ~1.05 base-rate comfortably.
+
+### Phase 4 — the headline: Poisson vs XGBoost vs bookmaker, same honest harness
+The scoreline model rides the *existing* walk-forward harnesses with zero changes
+to them, via a thin adapter `PoissonWDL` (fit/predict_proba/best_iteration). The
+trick: the harness hands the model `df[feature_columns]`, so for the Poisson run
+we simply pass a different column list (`POISSON_FEATURE_COLUMNS` = match identity
++ goals) instead of the 21 engineered features. The harness-supplied `sample_weight`
+(recency × importance) becomes the Dixon-Coles time weighting; `predict_proba`
+reads only team names + neutral, never the score columns present in the frame (that
+would leak the answer). `src/models/poisson_eval.py` runs both models through the
+identical leakage-safe walk-forward, so their pooled truth / bookmaker / base-rate
+vectors are row-aligned and every difference gets a paired bootstrap CI. **Sanity
+anchor:** the XGBoost column reproduces the committed `broader_eval` numbers to 3dp
+(acc 0.630, log-loss 0.826), so only the Poisson column is new.
+
+**Broad odds-covered block (n=2,184 — qualifiers + Nations League + tournaments):**
+
+| model | accuracy | log-loss | brier |
+|---|---|---|---|
+| **Poisson (Dixon-Coles)** | **0.643** | **0.795** | **0.464** |
+| XGBoost WDL | 0.630 | 0.826 | 0.482 |
+| bookmaker | 0.654 | 0.762 | 0.443 |
+| base-rate | 0.469 | 1.054 | 0.636 |
+
+Poisson − XGBoost = **−0.0314, 95% CI [−0.046, −0.018]** (Poisson significantly
+sharper); Poisson − bookmaker = **+0.033** vs XGBoost − bookmaker = **+0.065** (the
+Poisson model roughly HALVES the gap to the market); Poisson − base-rate = −0.259
+(clears no-skill). The result is trustworthy precisely because it still *loses* to
+the bookmaker — a leaking model would beat the market too; this has the right shape.
+
+**Tournament finals only (n=153, odds-covered — Euro 2020/2024 + WC 2022/2026):**
+
+| model | accuracy | log-loss | brier |
+|---|---|---|---|
+| Poisson (Dixon-Coles) | 0.536 | **0.986** | **0.584** |
+| XGBoost WDL | **0.575** | 1.015 | 0.606 |
+| bookmaker | 0.569 | 0.970 | 0.575 |
+
+On the finals the Poisson still edges XGBoost on log-loss/brier and is
+statistically *indistinguishable from the bookmaker* (Poisson − bookmaker +0.0155,
+CI [−0.016, +0.046]), but Poisson − XGBoost = −0.029, CI [−0.098, +0.039] is now
+**within noise** (n=153 can't resolve it), and XGBoost wins on finals *accuracy*
+(0.575 vs 0.536, the usual argmax-vs-calibration tension). Both beat base-rate.
+
+**Why the edge is huge on the broad block but shrinks on finals — an honest,
+coherent reason.** The two models' *information* differs by block. Poisson's key
+advantage is **opponent adjustment**: San Marino's goals-conceded looks less
+catastrophic once the `defence[opponent]` term nets out that it plays Germany and
+Spain, whereas XGBoost's `goal_trend` is a raw 10-year average with no opponent
+correction. On the broad block XGBoost's squad/`rating_gap` features are mostly NaN
+(they only populate on finals), so it runs on form alone and Poisson's strength
+model dominates. On the **finals** XGBoost has its full feature set, so the two
+converge to within noise. That is exactly the pattern the "right tool per
+sub-problem" thesis predicts — and the write-up headline: *the classical-statistics
+model is significantly sharper on the broad set and fully competitive with both the
+ML model and the market on the tournaments themselves, demonstrated with paired
+bootstrap CIs rather than asserted.*

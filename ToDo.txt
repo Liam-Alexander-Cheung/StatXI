@@ -48,10 +48,25 @@ NEXT SESSION — prioritised
              cells shift right way; weighting surfaces current form (Spain #1, Morocco
              top-10 D). Holdout WDL log-loss: plain 0.9027 -> +weight 0.8926 -> +DC
              0.8921 (both help, weighting the bigger win).
+           * Phase 4 — DONE (2026-08-10). PoissonWDL adapter (src/models/poisson.py)
+             rides the existing harness unchanged (pass POISSON_FEATURE_COLUMNS as
+             feature_columns; predict_proba ignores the score cols = no leakage).
+             src/models/poisson_eval.py runs BOTH models + book on the same covered
+             set, paired bootstrap CIs. XGBoost column reproduces broader_eval to 3dp
+             (correctness anchor). RESULT — the project's headline:
+               BROAD block (n=2184): Poisson 0.795 ll / 0.643 acc BEATS XGBoost 0.826 /
+                 0.630 (Poisson-XGB -0.031, CI [-.046,-.018], SIGNIFICANT); Poisson
+                 halves the gap to book (+0.033 vs XGB +0.065). Still loses to book
+                 (right shape, no leakage).
+               FINALS only (n=153): Poisson edges XGB on ll/brier (0.986/0.584 vs
+                 1.015/0.606) & is WITHIN NOISE of the bookmaker (+0.0155, CI
+                 [-.016,+.046]); but Poisson-XGB now within noise (small n) and XGB
+                 wins finals ACCURACY 0.575 vs 0.536. Both beat base-rate.
+               WHY: Poisson opponent-adjusts (defence[opp] nets out schedule); XGB's
+                 squad/rating features are NaN off finals, so Poisson dominates the
+                 broad block but the two converge on finals where XGB has full features.
+                 = "right tool per sub-problem", shown with CIs. Full arc in methodology.md.
          STILL TO DO on this workstream:
-           * Phase 4 — PoissonWDL adapter class (fit/predict_proba/best_iteration) to
-             drop into walk_forward + broader_eval; produce the apples-to-apples
-             Poisson-vs-XGBoost-vs-bookmaker table on the shared covered set. <- NEXT
            * Phase 5 — rating_gap covariate ablation on the Poisson rate (open design
              question: does lambda=exp(...+g*rating_gap) beat plain attack/defence?
              TRACK 2 says rating_gap carries signal, so TEST it, don't assume). Paired

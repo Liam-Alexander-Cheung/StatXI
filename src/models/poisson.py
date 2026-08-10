@@ -467,6 +467,82 @@ def predict_match(strengths: dict, home: str, away: str,
     }
 
 
+# ============================================================================
+# PHASE 4 — adapter: ride the existing WDL backtest harness
+# ============================================================================
+#
+# walk_forward.py / broader_eval.py fit and score ANY object with two methods:
+#   model.fit(X, y, sample_weight=..., eval_set=..., verbose=...)
+#   model.predict_proba(X) -> N x 3  in H/D/A order
+# They slice `df[feature_columns]` before handing X over. The XGBoost model gets
+# the 21 engineered features; the Poisson model instead needs the raw match
+# identity + goals, so we pass a DIFFERENT feature_columns list for the Poisson
+# run (POISSON_FEATURE_COLUMNS). Nothing in the harness changes — the same
+# leakage-safe per-fold split, bookmaker join, metrics, and bootstrap CIs all
+# apply, so the comparison is genuinely apples-to-apples.
+
+# The columns the adapter needs handed to it (in place of the 21 model features).
+# home_score/away_score are needed at FIT time (the model learns from goals) but
+# are deliberately IGNORED at predict time — see predict_proba.
+POISSON_FEATURE_COLUMNS = ["home_team", "away_team", "home_score", "away_score", "neutral"]
+
+
+class PoissonWDL:
+    """
+    A thin scikit-learn-shaped wrapper around the Dixon-Coles fit so it can be
+    dropped into walk_forward / broader_eval as `model_fn=PoissonWDL`.
+
+    Deliberately minimal: `fit` learns attack/defence + rho from the goals in X
+    (using the harness-supplied recency x importance `sample_weight`), and
+    `predict_proba` turns each match into H/D/A via the Phase-1/3 machinery. It is
+    NOT a general classifier — it only understands the POISSON_FEATURE_COLUMNS.
+    """
+
+    def __init__(self, reg: float = 1e-3):
+        self.reg = reg
+        self.strengths_ = None
+        # The harness reads model.best_iteration for its per-tournament table
+        # (XGBoost's chosen tree count). A Poisson MLE has no boosting rounds, so
+        # this is None; the comparison driver doesn't print it (avoids the format).
+        self.best_iteration = None
+
+    def fit(self, X, y=None, sample_weight=None, eval_set=None, verbose=None):
+        """Fit from the goals in X. `y` (the mapped H/D/A label) is ignored — the
+        scoreline model learns from raw goals, not the collapsed outcome.
+        `sample_weight` (recency x importance, from the harness) becomes the
+        Dixon-Coles time weighting. `eval_set`/`verbose` are XGBoost early-stopping
+        arguments with no Poisson analogue, accepted and ignored."""
+        w = None if sample_weight is None else np.asarray(sample_weight, dtype=float)
+        self.strengths_ = fit_strengths(X, weights=w, reg=self.reg)
+        self.strengths_["rho"] = fit_rho(X, self.strengths_, weights=w)
+        return self
+
+    def predict_proba(self, X) -> np.ndarray:
+        """N x 3 array of [P(home win), P(draw), P(away win)] — the exact H/D/A=0/1/2
+        order the harness and metrics expect. Reads ONLY home_team/away_team/neutral;
+        the home_score/away_score columns present in X are the match result and are
+        never touched here (that would leak the answer). A team unseen in training is
+        treated as league-average (attack=defence=0) — an honest 'unknown' default,
+        not a fabricated strength."""
+        s = self.strengths_
+        homes = X["home_team"].to_numpy()
+        aways = X["away_team"].to_numpy()
+        neutrals = X["neutral"].to_numpy()
+
+        out = np.empty((len(X), 3), dtype=float)
+        base, home_adv, rho = s["base"], s["home_adv"], s.get("rho", 0.0)
+        atk, dfn = s["attack"], s["defence"]
+        for k in range(len(X)):
+            ha = 0.0 if neutrals[k] else home_adv
+            # .get(team, 0.0): unseen team -> average strength (never fabricated).
+            lam_h = np.exp(base + ha + atk.get(homes[k], 0.0) - dfn.get(aways[k], 0.0))
+            lam_a = np.exp(base + atk.get(aways[k], 0.0) - dfn.get(homes[k], 0.0))
+            grid = scoreline_matrix(lam_h, lam_a)
+            grid = apply_dixon_coles(grid, lam_h, lam_a, rho)
+            out[k] = wdl_from_grid(grid)
+        return out
+
+
 def _rank_table(strengths: dict, key: str, min_matches: int = 50):
     """Helper for the demo: sorted (team, value, count) rows for `key`
     ('attack' or 'defence'), restricted to teams with >= min_matches games so the
