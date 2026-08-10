@@ -1667,6 +1667,31 @@ model is significantly sharper on the broad set and fully competitive with both 
 ML model and the market on the tournaments themselves, demonstrated with paired
 bootstrap CIs rather than asserted.*
 
+### Phase 5 — does a rating_gap covariate earn its place? (no — and for a reason)
+The deferred design question, tested not assumed: add `gamma·rating_gap` to the
+Poisson rate (log λ_home += gamma·gap, log λ_away −= gamma·gap, one fitted
+coefficient) vs plain attack/defence. `src/models/poisson_rating_ablation.py` runs
+both variants through the identical annual walk-forward on the covered block and
+pairs them with a bootstrap CI (the same pattern as the WDL ablation).
+
+**Result: no effect, well-powered.** Plain 0.795 log-loss / 0.643 acc vs +rating
+0.795 / 0.642 — the paired lift is **+0.0001, 95% CI [−0.0006, +0.0009]**, dead on
+zero (point estimate marginally *positive*, i.e. a hair worse). This is not a
+coverage artefact: **2,182 of 2,184** covered rows carry a non-NaN `rating_gap`, so
+the covariate genuinely acts almost everywhere and still moves nothing. (The plain
+column also reproduces Phase 4 to 3dp — a free regression check that adding the
+covariate machinery didn't disturb the base fit.)
+
+**Why redundant here when it wasn't clearly so for WDL — the coherent reason.** The
+Poisson strengths ALREADY opponent-adjust team quality straight from goals (the
+whole point of the `defence[opponent]` term). A FIFA-rating quality gap is just a
+noisier proxy for the same thing, so it adds nothing on top. The WDL model's
+`goal_trend` does NOT opponent-adjust, which is exactly why `rating_gap` was at
+least a candidate there. Same feature, opposite conclusion, one mechanism — and it
+reinforces the Phase 4 story that opponent adjustment is the Poisson model's real
+edge. **Decision:** keep the covariate code (tested, `use_rating` flag, reproducible
+ablation) but leave it OFF by default; plain Dixon-Coles is the model.
+
 ### Design idea (NOT yet built — hypothesis for the webapp "AI insight")
 Phase 4 shows model strength is *block-dependent*: Poisson dominates the broad
 block, the two converge on finals where XGBoost's squad/`rating_gap` features

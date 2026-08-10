@@ -204,7 +204,7 @@ def apply_dixon_coles(grid: np.ndarray, lambda_home: float, lambda_away: float,
 # done in bulk with np.bincount.
 
 
-def fit_strengths(matches, weights=None, reg: float = 1e-3,
+def fit_strengths(matches, weights=None, reg: float = 1e-3, covariate=None,
                   verbose: bool = False) -> dict:
     """
     Fit per-team attack/defence strengths + global base & home_adv by maximum
@@ -220,6 +220,13 @@ def fit_strengths(matches, weights=None, reg: float = 1e-3,
     (the Phase-2 unweighted fit). fit_dixon_coles passes recency x importance here
     so recent, important matches shape the strengths more (Phase 3a).
 
+    `covariate`: optional per-match number (Phase 5 = rating_gap) added to the home
+    log-rate and subtracted from the away log-rate, with a single fitted coefficient
+    gamma: log λ_home += gamma*cov, log λ_away −= gamma*cov. NaN entries become 0
+    (no adjustment), so matches without a rating just get the plain prediction.
+    None = no covariate (the vector has no gamma term, behaviour is byte-identical
+    to the pre-Phase-5 fit).
+
     `reg` is a small L2 (ridge) penalty on the attack/defence values. It does two
     honest jobs at once: (1) it resolves a harmless redundancy in the model — you
     can add a constant to every attack and every defence without changing any
@@ -230,11 +237,12 @@ def fit_strengths(matches, weights=None, reg: float = 1e-3,
 
     Returns a dict:
       {"attack": {team: float}, "defence": {team: float},
-       "home_adv": float, "base": float, "rho": 0.0,
+       "home_adv": float, "base": float, "rho": 0.0, "rating_coef": float,
        "teams": [team, ...], "match_counts": {team: int},
        "n_matches": int, "converged": bool}
     where attack/defence are CENTRED (mean 0) so they read as deviations from an
-    average international side. `rho` is 0.0 here (set by fit_dixon_coles).
+    average international side. `rho` is 0.0 here (set by fit_dixon_coles);
+    `rating_coef` is the fitted gamma (0.0 when no covariate was passed).
     """
     # --- Encode teams as integer indices (arrays are far faster than dict lookups
     #     inside the objective, which runs hundreds of times). ------------------
@@ -252,23 +260,33 @@ def fit_strengths(matches, weights=None, reg: float = 1e-3,
     # Per-match weights (recency x importance, or all-ones if unweighted).
     w = np.ones(len(matches)) if weights is None else np.asarray(weights, dtype=float)
 
+    # Optional per-match covariate (Phase 5: rating_gap). NaN -> 0 = no adjustment.
+    has_cov = covariate is not None
+    cov = (np.nan_to_num(np.asarray(covariate, dtype=float), nan=0.0)
+           if has_cov else None)
+
     # Per-team match counts (home + away appearances) — for honest display later
     # (rank only teams with enough games) and returned for the caller.
     counts = np.bincount(home_idx, minlength=T) + np.bincount(away_idx, minlength=T)
 
-    # --- Parameter vector layout: [base, home_adv, attack[0..T-1], defence[0..T-1]]
+    # --- Parameter vector: [base, home_adv, attack[0..T-1], defence[0..T-1], (gamma?)]
     def unpack(theta):
-        return theta[0], theta[1], theta[2:2 + T], theta[2 + T:2 + 2 * T]
+        base, home_adv = theta[0], theta[1]
+        A = theta[2:2 + T]
+        D = theta[2 + T:2 + 2 * T]
+        gamma = theta[2 + 2 * T] if has_cov else 0.0   # covariate coef, if any
+        return base, home_adv, A, D, gamma
 
     def nll_and_grad(theta):
         """Weighted negative log-likelihood (dropping the constant log(y!)) AND
         its exact gradient, both vectorised over all matches. Returned together
         because the optimiser (jac=True) wants both and they share the work."""
-        base, home_adv, A, D = unpack(theta)
+        base, home_adv, A, D, gamma = unpack(theta)
+        extra = gamma * cov if has_cov else 0.0        # +on home rate, −on away rate
 
         # Log-rates, then rates, for every match at once.
-        loglam_h = base + home_adv * nz + A[home_idx] - D[away_idx]
-        loglam_a = base + A[away_idx] - D[home_idx]
+        loglam_h = base + home_adv * nz + A[home_idx] - D[away_idx] + extra
+        loglam_a = base + A[away_idx] - D[home_idx] - extra
         lam_h = np.exp(loglam_h)
         lam_a = np.exp(loglam_a)
 
@@ -294,13 +312,18 @@ def fit_strengths(matches, weights=None, reg: float = 1e-3,
                - np.bincount(home_idx, weights=r_a, minlength=T)
                + reg * D)
 
-        grad = np.concatenate([[g_base], [g_home_adv], g_A, g_D])
-        return nll, grad
+        parts = [[g_base], [g_home_adv], g_A, g_D]
+        if has_cov:
+            # covariate enters +extra on home, −extra on away:
+            #   d(nll)/d(gamma) = sum cov*(r_h − r_a)
+            parts.append([np.sum(cov * (r_h - r_a))])
+        return nll, np.concatenate(parts)
 
     # --- Sensible starting point: base = log(overall mean goals per side),
-    #     home_adv a small positive number, all strengths 0. ---------------------
+    #     home_adv a small positive number, all strengths (and gamma) 0. ---------
     mean_goals = (hg.sum() + ag.sum()) / (2 * len(matches))
-    theta0 = np.concatenate([[np.log(mean_goals)], [0.2], np.zeros(2 * T)])
+    theta0 = np.concatenate([[np.log(mean_goals)], [0.2], np.zeros(2 * T)]
+                            + ([[0.0]] if has_cov else []))
 
     # L-BFGS-B: a quasi-Newton optimiser that handles hundreds of parameters
     # efficiently using our analytic gradient (jac=True). No bounds needed —
@@ -308,10 +331,11 @@ def fit_strengths(matches, weights=None, reg: float = 1e-3,
     res = minimize(nll_and_grad, theta0, jac=True, method="L-BFGS-B",
                    options={"maxiter": 1000})
     if verbose:
+        tail = f"  rating_coef={res.x[-1]:+.4f}" if has_cov else ""
         print(f"  strengths: success={res.success}  nll={res.fun:.1f}  "
-              f"iters={res.nit}  params={len(theta0)}  teams={T}")
+              f"iters={res.nit}  params={len(theta0)}  teams={T}{tail}")
 
-    base, home_adv, A, D = unpack(res.x)
+    base, home_adv, A, D, gamma = unpack(res.x)
 
     # --- Centre attack & defence to mean 0 so they read as deviations, folding
     #     the shift into `base` so every predicted rate is unchanged (see the
@@ -327,6 +351,7 @@ def fit_strengths(matches, weights=None, reg: float = 1e-3,
         "home_adv": float(home_adv),
         "base": float(base_c),
         "rho": 0.0,  # set by fit_dixon_coles; 0 = plain independent Poisson
+        "rating_coef": float(gamma),  # fitted covariate coef; 0.0 if none (Phase 5)
         "teams": teams,
         "match_counts": {t: int(counts[i]) for t, i in idx.items()},
         "n_matches": int(len(matches)),
@@ -374,6 +399,13 @@ def _match_lambdas(matches, strengths):
     nz = (1 - matches["neutral"].to_numpy()).astype(float)
     lam_h = np.exp(base + home_adv * nz + a_home - d_away)
     lam_a = np.exp(base + a_away - d_home)
+    # Apply the Phase-5 rating covariate if this fit used one (else gamma=0 -> skip),
+    # so the rho fit sees the same lambdas the model actually predicts with.
+    gamma = strengths.get("rating_coef", 0.0)
+    if gamma and "rating_gap" in matches.columns:
+        cov = np.nan_to_num(matches["rating_gap"].to_numpy(dtype=float), nan=0.0)
+        lam_h = lam_h * np.exp(gamma * cov)
+        lam_a = lam_a * np.exp(-gamma * cov)
     return lam_h, lam_a
 
 
@@ -485,6 +517,8 @@ def predict_match(strengths: dict, home: str, away: str,
 # home_score/away_score are needed at FIT time (the model learns from goals) but
 # are deliberately IGNORED at predict time — see predict_proba.
 POISSON_FEATURE_COLUMNS = ["home_team", "away_team", "home_score", "away_score", "neutral"]
+# Phase 5 variant: same, plus the rating_gap covariate column.
+POISSON_RATING_COLUMNS = POISSON_FEATURE_COLUMNS + ["rating_gap"]
 
 
 class PoissonWDL:
@@ -496,10 +530,15 @@ class PoissonWDL:
     (using the harness-supplied recency x importance `sample_weight`), and
     `predict_proba` turns each match into H/D/A via the Phase-1/3 machinery. It is
     NOT a general classifier — it only understands the POISSON_FEATURE_COLUMNS.
+
+    `use_rating` (Phase 5): if True, also fit a rating_gap covariate on the rate —
+    the harness must then be given feature_columns=POISSON_RATING_COLUMNS so the
+    `rating_gap` column is present. Default False = plain attack/defence.
     """
 
-    def __init__(self, reg: float = 1e-3):
+    def __init__(self, reg: float = 1e-3, use_rating: bool = False):
         self.reg = reg
+        self.use_rating = use_rating
         self.strengths_ = None
         # The harness reads model.best_iteration for its per-tournament table
         # (XGBoost's chosen tree count). A Poisson MLE has no boosting rounds, so
@@ -513,30 +552,37 @@ class PoissonWDL:
         Dixon-Coles time weighting. `eval_set`/`verbose` are XGBoost early-stopping
         arguments with no Poisson analogue, accepted and ignored."""
         w = None if sample_weight is None else np.asarray(sample_weight, dtype=float)
-        self.strengths_ = fit_strengths(X, weights=w, reg=self.reg)
+        cov = X["rating_gap"].to_numpy(dtype=float) if self.use_rating else None
+        self.strengths_ = fit_strengths(X, weights=w, reg=self.reg, covariate=cov)
         self.strengths_["rho"] = fit_rho(X, self.strengths_, weights=w)
         return self
 
     def predict_proba(self, X) -> np.ndarray:
         """N x 3 array of [P(home win), P(draw), P(away win)] — the exact H/D/A=0/1/2
-        order the harness and metrics expect. Reads ONLY home_team/away_team/neutral;
-        the home_score/away_score columns present in X are the match result and are
-        never touched here (that would leak the answer). A team unseen in training is
-        treated as league-average (attack=defence=0) — an honest 'unknown' default,
-        not a fabricated strength."""
+        order the harness and metrics expect. Reads ONLY home_team/away_team/neutral
+        (and rating_gap when use_rating); the home_score/away_score columns present
+        in X are the match result and are never touched here (that would leak the
+        answer). A team unseen in training is treated as league-average
+        (attack=defence=0) — an honest 'unknown' default, not a fabricated strength."""
         s = self.strengths_
         homes = X["home_team"].to_numpy()
         aways = X["away_team"].to_numpy()
         neutrals = X["neutral"].to_numpy()
+        gamma = s.get("rating_coef", 0.0)
+        if self.use_rating and "rating_gap" in X.columns:
+            cov = np.nan_to_num(X["rating_gap"].to_numpy(dtype=float), nan=0.0)
+        else:
+            cov = np.zeros(len(X))
 
         out = np.empty((len(X), 3), dtype=float)
         base, home_adv, rho = s["base"], s["home_adv"], s.get("rho", 0.0)
         atk, dfn = s["attack"], s["defence"]
         for k in range(len(X)):
             ha = 0.0 if neutrals[k] else home_adv
+            adj = gamma * cov[k]   # rating covariate: +on home rate, −on away rate
             # .get(team, 0.0): unseen team -> average strength (never fabricated).
-            lam_h = np.exp(base + ha + atk.get(homes[k], 0.0) - dfn.get(aways[k], 0.0))
-            lam_a = np.exp(base + atk.get(aways[k], 0.0) - dfn.get(homes[k], 0.0))
+            lam_h = np.exp(base + ha + atk.get(homes[k], 0.0) - dfn.get(aways[k], 0.0) + adj)
+            lam_a = np.exp(base + atk.get(aways[k], 0.0) - dfn.get(homes[k], 0.0) - adj)
             grid = scoreline_matrix(lam_h, lam_a)
             grid = apply_dixon_coles(grid, lam_h, lam_a, rho)
             out[k] = wdl_from_grid(grid)

@@ -66,14 +66,31 @@ NEXT SESSION — prioritised
                  squad/rating features are NaN off finals, so Poisson dominates the
                  broad block but the two converge on finals where XGB has full features.
                  = "right tool per sub-problem", shown with CIs. Full arc in methodology.md.
-         STILL TO DO on this workstream:
-           * Phase 5 — rating_gap covariate ablation on the Poisson rate (open design
-             question: does lambda=exp(...+g*rating_gap) beat plain attack/defence?
-             TRACK 2 says rating_gap carries signal, so TEST it, don't assume). Paired
-             bootstrap CI, same honest pattern as broader_eval.ablation_report.
-           * LATER (own workstream) — Monte Carlo: single-match cross-check of the
-             analytic grid, then the full tournament simulator (groups -> knockout,
-             ~50/50 penalty-shootout resolution for stored-as-draw knockout games).
+           * Phase 5 — DONE (2026-08-10). rating_gap covariate ablation on the Poisson
+             rate (src/models/poisson_rating_ablation.py; fit_strengths grew an optional
+             covariate + PoissonWDL(use_rating=True)). RESULT: NO EFFECT, well-powered —
+             plain 0.795/0.643 vs +rating 0.795/0.642; paired lift +0.0001, CI
+             [-0.0006,+0.0009], dead on zero. NOT a coverage artefact: 2182/2184 covered
+             rows carry rating_gap. WHY: Poisson strengths ALREADY opponent-adjust team
+             quality from goals, so a FIFA-rating gap is a redundant proxy (contrast WDL,
+             whose goal_trend doesn't opponent-adjust -> rating_gap was a candidate there).
+             DECISION: keep the code (use_rating flag, reproducible) but OFF by default;
+             plain Dixon-Coles is the model. Plain column also reproduced Phase 4 to 3dp
+             (regression check). Full arc in methodology.md.
+
+         >>> Phases 1-5 COMPLETE. The Poisson/Dixon-Coles WDL model is built, verified,
+             benchmarked (beats XGBoost on the broad block, competitive on finals), and
+             the rating_gap question is settled. What remains on the classical-stats half:
+
+           * LATER (own workstream) — MONTE CARLO. Note: Phases 1-5 predict W/D/L by
+             COLLAPSING the scoreline grid; the full scoreline distribution + Dixon-Coles
+             low-score correction are already there (poisson.scoreline_matrix /
+             apply_dixon_coles), so the Monte Carlo work builds on them:
+               - single-match Monte Carlo as a cross-check of the analytic grid (sanity).
+               - full tournament simulator: groups -> knockout bracket, ~50/50 penalty-
+                 shootout resolution for the stored-as-draw knockout games (see the DRAWS
+                 note above), producing per-team advance/win probabilities. ToDo item 7.
+               - THEN backtesting the tournament sim end-to-end (ToDo item 8).
          - DRAWS ARE POISSON'S JOB (investigated 2026-08-05, deferred to here).
            The WDL model almost never predicts draws, but this is NOT a bug to
            "fix" in XGBoost: its draw probabilities are already ~perfectly
