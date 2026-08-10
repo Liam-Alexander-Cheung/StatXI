@@ -33,13 +33,32 @@ WHERE THINGS STAND (end of this session)
     home for DRAW modelling (see the deferred draw note under the Poisson item).
 
 NEXT SESSION — prioritised
-  [ ] 1. POISSON SCORELINE MODEL (the untouched classical-stats half — now the
-         single biggest remaining chunk of the project). Still a stub. Fit
-         attack/defence strengths + Monte Carlo. Open design question, now better
-         informed: whether to add a rating_gap/squad-quality covariate to the
-         Poisson rate — the TRACK 2 finding suggests rating_gap carries real
-         signal, so test it against a plain attack/defence baseline rather than
-         assuming. Big chunk; probably its own multi-session workstream.
+  [~] 1. POISSON SCORELINE MODEL (the classical-stats half). IN PROGRESS on branch
+         `poisson` (off consolidated main). src/models/poisson.py built + verified
+         through Phase 3; plan file: ~/.claude/plans (lets-start-super-simple...).
+         DONE (2026-08-10), each phase verified against real football + methodology.md:
+           * Phase 1 — scoreline_matrix + wdl_from_grid (Poisson PMF grid -> H/D/A),
+             checked vs hand arithmetic (P(0-0), symmetry, strong-vs-weak).
+           * Phase 2 — fit_strengths: attack/defence by MLE (scipy L-BFGS-B, analytic
+             gradient, ridge, sum-to-zero centring). Brazil/Spain/Germany top attack;
+             Italy top-6 DEFENCE but not top attack (catenaccio signature); San Marino
+             etc bottom; home_adv x1.31-1.35.
+           * Phase 3 — fit_dixon_coles: recency x importance time weighting + Dixon-
+             Coles rho (2-stage profile fit). rho=-0.047 (correct sign); low-score
+             cells shift right way; weighting surfaces current form (Spain #1, Morocco
+             top-10 D). Holdout WDL log-loss: plain 0.9027 -> +weight 0.8926 -> +DC
+             0.8921 (both help, weighting the bigger win).
+         STILL TO DO on this workstream:
+           * Phase 4 — PoissonWDL adapter class (fit/predict_proba/best_iteration) to
+             drop into walk_forward + broader_eval; produce the apples-to-apples
+             Poisson-vs-XGBoost-vs-bookmaker table on the shared covered set. <- NEXT
+           * Phase 5 — rating_gap covariate ablation on the Poisson rate (open design
+             question: does lambda=exp(...+g*rating_gap) beat plain attack/defence?
+             TRACK 2 says rating_gap carries signal, so TEST it, don't assume). Paired
+             bootstrap CI, same honest pattern as broader_eval.ablation_report.
+           * LATER (own workstream) — Monte Carlo: single-match cross-check of the
+             analytic grid, then the full tournament simulator (groups -> knockout,
+             ~50/50 penalty-shootout resolution for stored-as-draw knockout games).
          - DRAWS ARE POISSON'S JOB (investigated 2026-08-05, deferred to here).
            The WDL model almost never predicts draws, but this is NOT a bug to
            "fix" in XGBoost: its draw probabilities are already ~perfectly
