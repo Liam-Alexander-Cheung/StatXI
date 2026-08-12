@@ -14,19 +14,6 @@
 window.StatXI = window.StatXI || {};
 
 (function () {
-  // Flags for the prediction card. Unmapped teams fall back to ⚽ (the API has
-  // ~200 teams; we only need nice flags for the ones people actually pick).
-  var FLAGS = {
-    Germany:'🇩🇪', France:'🇫🇷', Spain:'🇪🇸', Italy:'🇮🇹', Portugal:'🇵🇹', England:'🏴',
-    Netherlands:'🇳🇱', Belgium:'🇧🇪', Croatia:'🇭🇷', Brazil:'🇧🇷', Argentina:'🇦🇷',
-    Uruguay:'🇺🇾', Mexico:'🇲🇽', 'United States':'🇺🇸', Japan:'🇯🇵', 'South Korea':'🇰🇷',
-    Denmark:'🇩🇰', Sweden:'🇸🇪', Norway:'🇳🇴', Switzerland:'🇨🇭', Austria:'🇦🇹',
-    Poland:'🇵🇱', Turkey:'🇹🇷', Serbia:'🇷🇸', Wales:'🏴', Scotland:'🏴', Ukraine:'🇺🇦',
-    Colombia:'🇨🇴', Chile:'🇨🇱', Nigeria:'🇳🇬', Ghana:'🇬🇭', Senegal:'🇸🇳', Morocco:'🇲🇦',
-    Cameroon:'🇨🇲', Ecuador:'🇪🇨', Peru:'🇵🇪', Australia:'🇦🇺', Canada:'🇨🇦',
-    Ireland:'🇮🇪', Greece:'🇬🇷', 'Czech Republic':'🇨🇿', Russia:'🇷🇺', Iran:'🇮🇷'
-  };
-
   // Build a query string, dropping empty params so ?date= is omitted when blank.
   function qs(params){
     return Object.keys(params)
@@ -49,8 +36,6 @@ window.StatXI = window.StatXI || {};
   function tryJSON(url){ return getJSON(url).then(function(b){ return b; }, function(){ return null; }); }
 
   StatXI.api = {
-    flag: function(team){ return FLAGS[team] || '⚽'; },
-
     getTeams: function(){ return getJSON('/api/teams'); },
 
     // both teams' rolling form (two single-team calls, combined)

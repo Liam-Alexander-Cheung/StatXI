@@ -34,9 +34,9 @@ StatXI.views = StatXI.views || {};
   function fillPrediction(el, d, a, b){
     el.innerHTML =
       '<div class="match">' +
-        '<div class="team"><div class="flag">' + api.flag(a) + '</div><div class="name">' + a + '</div></div>' +
+        '<div class="team"><div class="flag">' + StatXI.flag(a) + '</div><div class="name">' + a + '</div></div>' +
         '<div class="vs">VS</div>' +
-        '<div class="team"><div class="flag">' + api.flag(b) + '</div><div class="name">' + b + '</div></div>' +
+        '<div class="team"><div class="flag">' + StatXI.flag(b) + '</div><div class="name">' + b + '</div></div>' +
       '</div>' +
       '<div class="odds">' +
         oddCol('win',  a,      d.home_win) +
