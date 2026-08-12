@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>StatXI</title>
+  <!-- colours first, then layout -->
+  <link rel="stylesheet" href="css/theme.css">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- top bar persists across views; #view is swapped by the router -->
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="logo" href="#/">Stat<b>XI</b></a>
+      <nav class="nav">
+        <a href="#/">Home</a>
+        <a href="#/predict">Predict</a>
+      </nav>
+      <button class="toggle" id="themeToggle" type="button">🌙 Dark</button>
+    </div>
+  </header>
+
+  <main id="view" class="wrap"></main>
+
+  <!-- classic scripts (work over file://). Order matters: define the pieces of
+       StatXI first, then app.js wires them together and starts the router. -->
+  <script src="js/api.js"></script>
+  <script src="js/theme.js"></script>
+  <script src="js/router.js"></script>
+  <script src="js/views/landing.js"></script>
+  <script src="js/views/predict.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

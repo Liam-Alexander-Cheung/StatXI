@@ -3,6 +3,7 @@ from flask import render_template
 import pandas as pd
 from src.data_pipeline import load_raw_matches, clean_matches, load_squads
 from src.features import rolling_form, head_to_head_record, goal_trend, squad_age_depth, team_chemistry
+from src.models.poisson import fit_dixon_coles, predict_match
 
 app = Flask(__name__)
 
@@ -30,14 +31,50 @@ get_matches()
 get_squads()
 
 
+# Poisson attack/defence strengths are fit lazily per reference-date and cached.
+# The fit is ~0.7s, so re-doing it for every prediction on the same date is waste;
+# this dict keeps one fit per distinct "as of" date.
+_strengths_cache = {}
+
+
+def _ref_date():
+    """Read the optional ?date=YYYY-MM-DD query param into a Timestamp; empty or
+    absent means "now". Raises ValueError on a malformed date, which each route
+    turns into a 400 rather than a 500."""
+    d = request.args.get("date")
+    return pd.Timestamp(d) if d else pd.Timestamp.now()
+
+
+def get_strengths(ref_date):
+    """Dixon-Coles strengths fit on ONLY the matches strictly before ref_date.
+
+    This strict-before filter is the whole leakage guard: compute_weights weights
+    by recency but does NOT drop future matches (a match after ref_date would even
+    be up-weighted), so — exactly like walk_forward — the CALLER must pass a
+    pre-cutoff slice. Cached per date. Returns None if there's no history yet."""
+    key = ref_date.strftime("%Y-%m-%d")
+    if key not in _strengths_cache:
+        matches = get_matches()
+        pre = matches[matches["date"] < ref_date]
+        if pre.empty:
+            return None
+        _strengths_cache[key] = fit_dixon_coles(pre, reference_date=ref_date)
+    return _strengths_cache.get(key)
+
+
 @app.route("/api/rolling-form")
 def api_rolling_form():
     team = request.args.get("team")
     if not team:
         return jsonify({"error": "missing 'team' query parameter"}), 400
 
+    try:
+        ref = _ref_date()
+    except ValueError:
+        return jsonify({"error": "bad 'date' (expected YYYY-MM-DD)"}), 400
+
     matches = get_matches()
-    form = rolling_form(matches, team, pd.Timestamp.now())
+    form = rolling_form(matches, team, ref)
 
     if pd.isna(form):
         return jsonify({"error": f"no recent match data for '{team}'"}), 404
@@ -66,8 +103,13 @@ def api_h2h():
     if team_a == team_b:
         return jsonify({"error": "'team_a' and 'team_b' must be different teams"}), 400
 
+    try:
+        ref = _ref_date()
+    except ValueError:
+        return jsonify({"error": "bad 'date' (expected YYYY-MM-DD)"}), 400
+
     matches = get_matches()
-    win_rate = head_to_head_record(matches, team_a, team_b, pd.Timestamp.now())
+    win_rate = head_to_head_record(matches, team_a, team_b, ref)
 
     # NaN here means the two teams (as far as the dataset can tell) have
     # never played each other — could also mean one/both names are simply
@@ -149,6 +191,49 @@ def api_team_chemistry():
     return jsonify({"team": team, "tournament": tournament, **result})
 
 
+@app.route("/api/predict")
+def api_predict():
+    # The headline endpoint: one Dixon-Coles fit powers the win/draw/loss split,
+    # the most-likely scoreline, AND the expected goals (the two goal-rates lambda),
+    # so a single call fills the prediction card and the xG box.
+    home = request.args.get("home")
+    away = request.args.get("away")
+    if not home or not away:
+        return jsonify({"error": "missing 'home' or 'away' query parameter"}), 400
+    if home == away:
+        return jsonify({"error": "'home' and 'away' must be different teams"}), 400
+    try:
+        ref = _ref_date()
+    except ValueError:
+        return jsonify({"error": "bad 'date' (expected YYYY-MM-DD)"}), 400
+
+    strengths = get_strengths(ref)
+    if strengths is None:
+        return jsonify({"error": f"no match history before {ref.date()}"}), 404
+
+    # Neutral venue by DEFAULT: picking two teams isn't at anyone's home ground, so
+    # applying a home advantage to whoever sits in the 'home' slot would be a lie.
+    # Pass ?neutral=0 to deliberately give `home` the home-field boost.
+    neutral = request.args.get("neutral", "1") != "0"
+    pred = predict_match(strengths, home, away, neutral=neutral)
+    if pred is None:
+        # predict_match returns None (never a fabricated guess) when a team has no
+        # fitted strength — i.e. it played no matches before `ref`.
+        return jsonify({"error": f"no data before {ref.date()} to rate '{home}' or '{away}'"}), 404
+
+    i, j = pred["top_scoreline"]
+    return jsonify({
+        "home": home,
+        "away": away,
+        "home_win": round(pred["p_home"], 4),
+        "draw": round(pred["p_draw"], 4),
+        "away_win": round(pred["p_away"], 4),
+        "scoreline": f"{i} – {j}",   # en-dash, matches the frontend's "1 – 1"
+        "xg_home": round(pred["lambda_home"], 2),
+        "xg_away": round(pred["lambda_away"], 2),
+    })
+
+
 @app.route("/api/teams")
 def api_teams():
     matches = get_matches()
@@ -166,6 +251,13 @@ def api_tournaments():
 @app.route("/")
 def index():
     return render_template("index.html")
+
+
+@app.route("/legacy")
+def legacy():
+    # the previous feature-explorer UI, kept reachable as a fallback after the
+    # SPA redesign took over "/". Self-contained template, uses the same API.
+    return render_template("legacy_explorer.html")
 
 
 if __name__ == "__main__":

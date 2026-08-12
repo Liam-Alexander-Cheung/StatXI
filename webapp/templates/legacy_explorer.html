@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>StatXI — Rolling Form</title>
+</head>
+<body>
+    <h1>Team Rolling Form</h1>
+    <p class="feature-desc">Weighted win rate over a team's last 10 years of matches, weighted by recency and tournament importance.</p>
+
+    <select id="team-select">
+        <option value="">Loading teams...</option>
+    </select>
+
+    <p id="result"></p>
+
+    <h1>Head-to-Head Record</h1>
+    <p class="feature-desc">Weighted win rate for one team against another, across their full shared match history.</p>
+
+    <select id="h2h-team-a-select">
+        <option value="">Loading teams...</option>
+    </select>
+    <select id="h2h-team-b-select">
+        <option value="">Loading teams...</option>
+    </select>
+
+    <p id="h2h-result"></p>
+
+    <h1>Goal Trend</h1>
+    <p class="feature-desc">Weighted average goals scored, conceded, and differential over a team's last 10 years of matches.</p>
+
+    <select id="goal-trend-select">
+        <option value="">Loading teams...</option>
+    </select>
+
+    <p id="goal-trend-result"></p>
+
+    <h1>Squad Age &amp; Depth</h1>
+    <p class="feature-desc">Mean squad age and player counts/proportions per position (GK/DF/MF/FW) for a team's squad at one specific tournament.</p>
+
+    <select id="squad-team-select">
+        <option value="">Loading teams...</option>
+    </select>
+    <select id="squad-tournament-select">
+        <option value="">Loading tournaments...</option>
+    </select>
+
+    <p id="squad-result"></p>
+
+    <h1>Team Chemistry</h1>
+    <p class="feature-desc">Club-cohesion of a team's squad at one tournament: biggest single-club and two-club spines, a concentration index (HHI), and how many teammate pairs share a club. Higher = a squad built on one or two club cores rather than scattered across many clubs.</p>
+
+    <select id="chem-team-select">
+        <option value="">Loading teams...</option>
+    </select>
+    <select id="chem-tournament-select">
+        <option value="">Loading tournaments...</option>
+    </select>
+
+    <p id="chem-result"></p>
+
+    <script>
+        // fetch() makes an HTTP request from JavaScript, same idea as
+        // curl, but running inside the browser instead of the terminal
+        //
+        // takes the target <select> as a parameter instead of hardcoding
+        // one element's id, because this page now has three dropdowns
+        // (rolling-form's, plus h2h's team-a and team-b) that all need the
+        // exact same team list — one function, three call sites, instead
+        // of three near-identical copies of the same loop
+        async function loadTeams(selectEl) {
+            const response = await fetch("/api/teams");
+            const teams = await response.json();
+
+            selectEl.innerHTML = '<option value="">-- choose a team --</option>';
+            // build one <option> element per team, matching what the
+            // dropdown showed manually in earlier plain-HTML examples,
+            // just generated from real data instead of typed by hand
+            for (const team of teams) {
+                const option = document.createElement("option");
+                option.value = team;
+                option.textContent = team;
+                selectEl.appendChild(option);
+            }
+        }
+
+        // separate from loadTeams because it hits a different endpoint
+        // (/api/tournaments, not /api/teams) — same shape of loop though,
+        // so this is effectively loadTeams' sibling rather than a reuse of it
+        async function loadTournaments(selectEl) {
+            const response = await fetch("/api/tournaments");
+            const tournaments = await response.json();
+
+            selectEl.innerHTML = '<option value="">-- choose a tournament --</option>';
+            for (const tournament of tournaments) {
+                const option = document.createElement("option");
+                option.value = tournament;
+                option.textContent = tournament;
+                selectEl.appendChild(option);
+            }
+        }
+
+        async function onTeamSelected() {
+            const team = document.getElementById("team-select").value;
+            const resultEl = document.getElementById("result");
+
+            if (!team) {
+                resultEl.textContent = "";
+                return;
+            }
+
+            resultEl.textContent = "Loading...";
+            const response = await fetch(`/api/rolling-form?team=${encodeURIComponent(team)}`);
+            const data = await response.json();
+
+            if (data.error) {
+                resultEl.textContent = `Error: ${data.error}`;
+            } else {
+                resultEl.textContent = `${data.team} rolling form: ${data.rolling_form}`;
+            }
+        }
+
+        // fires on a change to *either* h2h dropdown (both listeners below
+        // point at this same function) — it just re-reads whichever two
+        // values are currently selected, rather than tracking which one
+        // just changed, since that's simpler and there are only two inputs
+        async function onH2hTeamSelected() {
+            const teamA = document.getElementById("h2h-team-a-select").value;
+            const teamB = document.getElementById("h2h-team-b-select").value;
+            const resultEl = document.getElementById("h2h-result");
+
+            if (!teamA || !teamB) {
+                resultEl.textContent = "";
+                return;
+            }
+
+            // same-team check duplicates the backend's /api/h2h 400 check,
+            // done here too so the user gets an instant message instead of
+            // waiting on a round trip for a mistake the page can already see.
+            // the backend still enforces it independently (never trust the
+            // client to be the only thing standing between a bad request
+            // and the server) — this is purely an early exit for UX
+            if (teamA === teamB) {
+                resultEl.textContent = "Error: choose two different teams";
+                return;
+            }
+
+            resultEl.textContent = "Loading...";
+            const response = await fetch(
+                `/api/h2h?team_a=${encodeURIComponent(teamA)}&team_b=${encodeURIComponent(teamB)}`
+            );
+            const data = await response.json();
+
+            if (data.error) {
+                resultEl.textContent = `Error: ${data.error}`;
+            } else {
+                // data.team_a specifically (not "the first team" generically)
+                // because h2h_win_rate is asymmetric — it's team_a's win rate
+                // against team_b, not a symmetric "how good is this matchup"
+                // number, so the label has to say whose win rate it is
+                resultEl.textContent = `${data.team_a} vs ${data.team_b} — ${data.team_a} win rate: ${data.h2h_win_rate}`;
+            }
+        }
+
+        async function onGoalTrendTeamSelected() {
+            const team = document.getElementById("goal-trend-select").value;
+            const resultEl = document.getElementById("goal-trend-result");
+
+            if (!team) {
+                resultEl.textContent = "";
+                return;
+            }
+
+            resultEl.textContent = "Loading...";
+            const response = await fetch(`/api/goal-trend?team=${encodeURIComponent(team)}`);
+            const data = await response.json();
+
+            if (data.error) {
+                resultEl.textContent = `Error: ${data.error}`;
+            } else {
+                // showing all three numbers, not just goal_differential —
+                // goals_scored and goals_conceded are independent signals
+                // that a single differential would hide (see goal_trend's
+                // own docstring: a 3-3 team and a 0.5-0.5 team both average
+                // to zero difference but are very different teams)
+                resultEl.textContent =
+                    `${data.team} — scored: ${data.goals_scored}, conceded: ${data.goals_conceded}, differential: ${data.goal_differential}`;
+            }
+        }
+
+        // fires on a change to *either* squad dropdown (team or tournament),
+        // same reasoning as onH2hTeamSelected — re-read both current values
+        // rather than track which one changed
+        async function onSquadSelected() {
+            const team = document.getElementById("squad-team-select").value;
+            const tournament = document.getElementById("squad-tournament-select").value;
+            const resultEl = document.getElementById("squad-result");
+
+            if (!team || !tournament) {
+                resultEl.textContent = "";
+                return;
+            }
+
+            resultEl.textContent = "Loading...";
+            const response = await fetch(
+                `/api/squad-age-depth?team=${encodeURIComponent(team)}&tournament=${encodeURIComponent(tournament)}`
+            );
+            const data = await response.json();
+
+            if (data.error) {
+                resultEl.textContent = `Error: ${data.error}`;
+            } else {
+                const c = data.position_counts;
+                const p = data.position_proportions;
+                // counts and proportions shown together (e.g. "9 (34.6%)")
+                // rather than picking one — see squad_age_depth's own
+                // docstring: counts are directly meaningful, proportions are
+                // what's actually comparable across squads of different size
+                resultEl.textContent =
+                    `${data.team} @ ${data.tournament} — mean age: ${data.mean_age}, squad size: ${data.squad_size} | ` +
+                    `GK: ${c.GK} (${(p.GK * 100).toFixed(1)}%), ` +
+                    `DF: ${c.DF} (${(p.DF * 100).toFixed(1)}%), ` +
+                    `MF: ${c.MF} (${(p.MF * 100).toFixed(1)}%), ` +
+                    `FW: ${c.FW} (${(p.FW * 100).toFixed(1)}%)`;
+            }
+        }
+
+        // same two-dropdown pattern as onSquadSelected — re-read both the
+        // team and tournament values on any change, since team_chemistry is
+        // squad-scoped and needs both to identify one squad
+        async function onChemistrySelected() {
+            const team = document.getElementById("chem-team-select").value;
+            const tournament = document.getElementById("chem-tournament-select").value;
+            const resultEl = document.getElementById("chem-result");
+
+            if (!team || !tournament) {
+                resultEl.textContent = "";
+                return;
+            }
+
+            resultEl.textContent = "Loading...";
+            const response = await fetch(
+                `/api/team-chemistry?team=${encodeURIComponent(team)}&tournament=${encodeURIComponent(tournament)}`
+            );
+            const data = await response.json();
+
+            if (data.error) {
+                resultEl.textContent = `Error: ${data.error}`;
+            } else {
+                // lead with same_club_pair_ratio (the main feature) and the
+                // two spine sizes, then the supporting concentration numbers —
+                // mirrors how squad-age-depth shows headline + breakdown
+                resultEl.textContent =
+                    `${data.team} @ ${data.tournament} — ` +
+                    `same-club pair ratio: ${data.same_club_pair_ratio} ` +
+                    `(${data.same_club_pairs} pairs) | ` +
+                    `largest club bloc: ${data.largest_club_bloc}, ` +
+                    `top-2 bloc: ${data.top2_club_bloc}, ` +
+                    `HHI: ${data.club_hhi}, ` +
+                    `distinct clubs: ${data.n_distinct_clubs}`;
+            }
+        }
+
+        // wire up each dropdown's change event, then load the team/tournament
+        // lists as soon as the page itself finishes loading
+        document.getElementById("team-select").addEventListener("change", onTeamSelected);
+        document.getElementById("h2h-team-a-select").addEventListener("change", onH2hTeamSelected);
+        document.getElementById("h2h-team-b-select").addEventListener("change", onH2hTeamSelected);
+        document.getElementById("goal-trend-select").addEventListener("change", onGoalTrendTeamSelected);
+        document.getElementById("squad-team-select").addEventListener("change", onSquadSelected);
+        document.getElementById("squad-tournament-select").addEventListener("change", onSquadSelected);
+        document.getElementById("chem-team-select").addEventListener("change", onChemistrySelected);
+        document.getElementById("chem-tournament-select").addEventListener("change", onChemistrySelected);
+
+        // five separate loadTeams() calls means five separate fetches of
+        // the same /api/teams payload on every page load, instead of
+        // fetching once and reusing it for all five dropdowns. noticed and
+        // left as-is deliberately: 311 teams is a tiny, server-cached
+        // payload, so the extra round trips cost nothing noticeable here —
+        // worth naming in code rather than silently accepting it, so it
+        // reads as a conscious tradeoff and not an oversight if revisited later
+        loadTeams(document.getElementById("team-select"));
+        loadTeams(document.getElementById("h2h-team-a-select"));
+        loadTeams(document.getElementById("h2h-team-b-select"));
+        loadTeams(document.getElementById("goal-trend-select"));
+        loadTeams(document.getElementById("squad-team-select"));
+        loadTournaments(document.getElementById("squad-tournament-select"));
+        loadTeams(document.getElementById("chem-team-select"));
+        loadTournaments(document.getElementById("chem-tournament-select"));
+    </script>
+</body>
+</html>

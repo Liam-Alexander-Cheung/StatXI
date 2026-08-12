@@ -1,0 +1,38 @@
+/* theme.css — ONLY the colour system. Two themes, expressed as two blocks
+   of CSS variables. Nothing here is layout; styles.css consumes these vars.
+
+   Soft Bright is the DEFAULT (:root). The toggle adds data-theme="dark" to
+   <html>, which swaps in the Refined Dark block. Values are carried over
+   verbatim from the approved 9-themed.html preview (incl. the +8–10% greener
+   greens / redder reds and the non-coloured feature tiles). */
+
+/* ---- DEFAULT theme: Soft Bright ---- */
+:root{
+  --bg:#f4f2fb; --card:#ffffff; --inner:#f4f2fb; --line:#e7e4f2;
+  --ink:#1c1930; --muted:#7a7695;
+  --accent:#6c5ce7; --accent-soft:rgba(108,92,231,.10); --accent-border:rgba(108,92,231,.25);
+  --win:#0bbf93;    /* +~9% greener than the old #12b3a6 */
+  --draw:#6c5ce7;
+  --loss:#ff5860;   /* +~9% redder than the old #ff6b81 */
+  --card-shadow:0 14px 40px rgba(108,92,231,.12);
+  --tile-shadow:0 10px 28px rgba(108,92,231,.08);
+  --bar-track:#e7e4f2;
+  --odd-bg-win:rgba(11,191,147,.08); --odd-bg-draw:rgba(108,92,231,.08); --odd-bg-loss:rgba(255,88,96,.08);
+  --glow:radial-gradient(700px 400px at 100% -10%, rgba(108,92,231,.14), transparent),
+         radial-gradient(600px 360px at -5% 20%, rgba(18,179,166,.12), transparent);
+}
+
+/* ---- Toggled theme: Refined Dark ---- */
+:root[data-theme="dark"]{
+  --bg:#0f1319; --card:#161b23; --inner:#11151c; --line:#242c38;
+  --ink:#e9eef6; --muted:#8592a6;
+  --accent:#33e38c; --accent-soft:rgba(51,227,140,.10); --accent-border:rgba(51,227,140,.30);
+  --win:#33e38c;    /* +~8% greener than the old #3fe0a6 */
+  --draw:#5b9dff;
+  --loss:#ff5f66;   /* +~9% redder than the old #ff7a8a */
+  --card-shadow:0 18px 44px rgba(0,0,0,.42);
+  --tile-shadow:none;
+  --bar-track:#2a3342;
+  --odd-bg-win:var(--inner); --odd-bg-draw:var(--inner); --odd-bg-loss:var(--inner);
+  --glow:radial-gradient(700px 380px at 92% -8%, rgba(51,227,140,.10), transparent);
+}

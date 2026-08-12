@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StatXI — Static Glass</title>
+<style>
+  /* ===== Take 6: Static Glass =====
+     The frosted-glass boxes you liked, but the gradient is FIXED —
+     no animation. Deep indigo→plum, calm. */
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,"SF Pro Display",sans-serif;color:#eef0ff;min-height:100vh;padding:34px 20px;
+    background:
+      radial-gradient(900px 500px at 85% -5%, rgba(168,85,247,.35), transparent),
+      radial-gradient(800px 500px at 0% 30%, rgba(59,130,246,.28), transparent),
+      linear-gradient(160deg,#141033,#0d1230 55%,#0a0a1c)}
+  .wrap{max-width:960px;margin:0 auto}
+  .brand{font-weight:800;font-size:24px;letter-spacing:-.5px;margin-bottom:24px}
+  .brand span{opacity:.6;font-weight:400;font-size:14px;margin-left:8px}
+  .hero{margin-bottom:28px}
+  .hero h1{font-size:clamp(28px,5.5vw,46px);font-weight:800;line-height:1.08;letter-spacing:-1px}
+  .hero h1 span{color:#c4a6ff}
+  .hero p{opacity:.85;margin-top:10px;font-size:16px;max-width:540px}
+
+  .glass{background:rgba(255,255,255,.08);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+    border:1px solid rgba(255,255,255,.16);border-radius:22px;padding:24px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+  .match{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+  .team{text-align:center;flex:1}
+  .team .flag{font-size:44px;filter:drop-shadow(0 4px 12px rgba(0,0,0,.3))}
+  .team .name{font-weight:700;font-size:18px;margin-top:6px}
+  .vs{opacity:.6;font-weight:800;letter-spacing:2px;font-size:13px}
+  .odds{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .odd{background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.16);border-radius:15px;
+    padding:16px;text-align:center;transition:.2s}
+  .odd:hover{background:rgba(255,255,255,.16)}
+  .odd .lbl{font-size:11px;opacity:.8;text-transform:uppercase;letter-spacing:1.5px}
+  .odd .pct{font-size:32px;font-weight:800;margin-top:6px}
+  .odd.win .pct{color:#8be9c0} .odd.draw .pct{color:#a9c4ff} .odd.loss .pct{color:#ffa9c0}
+  .scoreline{margin-top:18px;padding-top:18px;border-top:1px solid rgba(255,255,255,.14);
+    display:flex;justify-content:space-between;align-items:center}
+  .scoreline .k{opacity:.8;font-size:13px;text-transform:uppercase;letter-spacing:1.5px}
+  .scoreline .v{font-weight:800;font-size:28px}
+
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:20px}
+  .tile{background:rgba(255,255,255,.08);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.16);border-radius:16px;padding:18px}
+  .tile .t{font-size:12px;opacity:.75;text-transform:uppercase;letter-spacing:1.5px}
+  .tile .big{font-size:32px;font-weight:800;margin-top:8px}
+  .tile .sub{font-size:13px;opacity:.7;margin-top:4px}
+  .foot{margin-top:28px;opacity:.7;font-size:12px;text-align:center;letter-spacing:1px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">StatXI<span>· football, predicted</span></div>
+
+  <div class="hero">
+    <h1>The match, <span>before</span> it's played.</h1>
+    <p>A machine-learning result model and a Poisson goals simulation — with a bit of glass to look through.</p>
+  </div>
+
+  <div class="glass">
+    <div class="match">
+      <div class="team"><div class="flag">🇩🇪</div><div class="name">Germany</div></div>
+      <div class="vs">VS</div>
+      <div class="team"><div class="flag">🇫🇷</div><div class="name">France</div></div>
+    </div>
+    <div class="odds">
+      <div class="odd win"><div class="lbl">Germany</div><div class="pct">41%</div></div>
+      <div class="odd draw"><div class="lbl">Draw</div><div class="pct">27%</div></div>
+      <div class="odd loss"><div class="lbl">France</div><div class="pct">32%</div></div>
+    </div>
+    <div class="scoreline"><span class="k">Most likely scoreline</span><span class="v">1 – 1</span></div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="t">Rolling form</div><div class="big">0.68</div><div class="sub">Germany, last 10 yrs</div></div>
+    <div class="tile"><div class="t">Head-to-head</div><div class="big">0.44</div><div class="sub">GER win rate vs FRA</div></div>
+    <div class="tile"><div class="t">Squad chemistry</div><div class="big">0.31</div><div class="sub">club-cohesion index</div></div>
+  </div>
+
+  <div class="foot">TAKE 6 · STATIC GLASS (no animation) · mock data for preview</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StatXI — Neon Pitch</title>
+<style>
+  /* ===== Aesthetic 1: Neon pitch / sportsbook =====
+     Dark, electric, live-odds-screen energy. */
+  :root{
+    --bg:#0a0e14; --panel:#111823; --line:#1e2a3a;
+    --green:#00ff88; --magenta:#ff2e97; --cyan:#22d3ee;
+    --text:#e8f0ff; --muted:#7b8aa3;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);
+    background-image:
+      radial-gradient(1200px 400px at 80% -10%, rgba(255,46,151,.18), transparent),
+      radial-gradient(1000px 500px at -10% 20%, rgba(0,255,136,.12), transparent);
+    min-height:100vh;padding:32px 20px;
+  }
+  .wrap{max-width:1000px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:28px}
+  .logo{font-weight:900;font-size:26px;letter-spacing:-1px;
+    background:linear-gradient(90deg,var(--green),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .badge{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:2px;
+    color:var(--magenta);border:1px solid var(--magenta);padding:3px 8px;border-radius:6px}
+  .hero{margin:10px 0 34px}
+  .hero h1{font-size:clamp(30px,6vw,52px);font-weight:900;line-height:1.02;letter-spacing:-1.5px}
+  .hero h1 em{font-style:normal;color:var(--green);text-shadow:0 0 24px rgba(0,255,136,.5)}
+  .hero p{color:var(--muted);margin-top:12px;font-size:16px;max-width:560px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:24px;
+    box-shadow:0 0 0 1px rgba(0,255,136,.04),0 20px 60px rgba(0,0,0,.5)}
+  .match{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+  .team{text-align:center;flex:1}
+  .team .flag{font-size:40px}
+  .team .name{font-weight:800;font-size:18px;margin-top:6px}
+  .vs{color:var(--magenta);font-weight:900;font-size:14px;letter-spacing:2px}
+  .odds{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .odd{background:#0c121c;border:1px solid var(--line);border-radius:12px;padding:16px;text-align:center;
+    transition:.2s}
+  .odd:hover{border-color:var(--green);box-shadow:0 0 20px rgba(0,255,136,.25)}
+  .odd .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px}
+  .odd .pct{font-size:30px;font-weight:900;margin-top:6px}
+  .odd.win .pct{color:var(--green)} .odd.draw .pct{color:var(--cyan)} .odd.loss .pct{color:var(--magenta)}
+  .scoreline{margin-top:18px;padding-top:18px;border-top:1px dashed var(--line);
+    display:flex;justify-content:space-between;align-items:center}
+  .scoreline .k{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1.5px}
+  .scoreline .v{font-weight:900;font-size:28px;color:var(--green)}
+
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:24px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+  .tile .t{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px}
+  .tile .big{font-size:34px;font-weight:900;margin-top:8px;color:var(--cyan)}
+  .tile .sub{font-size:13px;color:var(--muted);margin-top:4px}
+  .foot{margin-top:30px;color:var(--muted);font-size:12px;text-align:center;letter-spacing:1px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <span class="logo">StatXI</span>
+    <span class="badge">Live Model</span>
+  </div>
+
+  <div class="hero">
+    <h1>Predict the <em>beautiful game</em><br>with cold, hard stats.</h1>
+    <p>XGBoost for the result, Poisson simulation for the scoreline. Backtested against real tournaments — not vibes.</p>
+  </div>
+
+  <div class="card">
+    <div class="match">
+      <div class="team"><div class="flag">🇩🇪</div><div class="name">Germany</div></div>
+      <div class="vs">VS</div>
+      <div class="team"><div class="flag">🇫🇷</div><div class="name">France</div></div>
+    </div>
+    <div class="odds">
+      <div class="odd win"><div class="lbl">Germany</div><div class="pct">41%</div></div>
+      <div class="odd draw"><div class="lbl">Draw</div><div class="pct">27%</div></div>
+      <div class="odd loss"><div class="lbl">France</div><div class="pct">32%</div></div>
+    </div>
+    <div class="scoreline">
+      <span class="k">Most likely scoreline</span>
+      <span class="v">1 – 1</span>
+    </div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="t">Rolling form</div><div class="big">0.68</div><div class="sub">Germany, last 10 yrs</div></div>
+    <div class="tile"><div class="t">Head-to-head</div><div class="big">0.44</div><div class="sub">GER win rate vs FRA</div></div>
+    <div class="tile"><div class="t">Squad chemistry</div><div class="big">0.31</div><div class="sub">club-cohesion index</div></div>
+  </div>
+
+  <div class="foot">AESTHETIC 1 · NEON PITCH / SPORTSBOOK · mock data for preview</div>
+</div>
+</body>
+</html>

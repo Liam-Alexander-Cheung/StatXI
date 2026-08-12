@@ -1,0 +1,120 @@
+/* styles.css — structure & layout. All colours come from theme.css vars,
+   so both themes work with zero duplicated rules here.
+   The .card / .odds / .tile / .scoreline blocks are the SAME components you
+   approved in 9-themed.html; the new bits are the topbar, landing sections,
+   form controls, the two-team ".duo" layout, and the loading spinner. */
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);
+  min-height:100vh;background-image:var(--glow);transition:background .25s,color .25s}
+.wrap{max-width:960px;margin:0 auto;padding:0 20px}
+
+/* ---------- top bar (persists across views) ---------- */
+.topbar{position:sticky;top:0;z-index:10;border-bottom:1px solid var(--line);
+  background:var(--bg); /* fallback if color-mix is unsupported */
+  background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(10px)}
+.topbar-inner{display:flex;align-items:center;gap:16px;padding:14px 0}
+.logo{font-weight:900;font-size:22px;letter-spacing:-.5px;text-decoration:none;color:var(--ink)}
+.logo b{color:var(--accent)}
+.nav{display:flex;gap:14px;margin-left:6px}
+.nav a{text-decoration:none;color:var(--muted);font-weight:700;font-size:14px;
+  padding:6px 2px;border-bottom:2px solid transparent;transition:.2s}
+.nav a:hover{color:var(--ink)}
+.nav a.active{color:var(--ink);border-bottom-color:var(--accent)}
+.toggle{margin-left:auto;display:inline-flex;align-items:center;gap:7px;cursor:pointer;
+  font:inherit;font-size:13px;font-weight:700;color:var(--ink);background:var(--card);
+  border:1px solid var(--line);padding:8px 14px;border-radius:20px;transition:.2s}
+.toggle:hover{border-color:var(--accent)}
+
+#view{padding:30px 0 64px}
+
+/* ---------- generic type ---------- */
+h1{font-size:clamp(28px,5vw,44px);font-weight:900;line-height:1.06;letter-spacing:-1px}
+.lead{color:var(--muted);font-size:17px;line-height:1.5;margin-top:12px;max-width:600px}
+
+/* ---------- landing ---------- */
+.hero{margin:6px 0 10px}
+.hero h1 span{color:var(--accent)}
+.cta{display:inline-block;margin-top:22px;background:var(--accent);color:#fff;font-weight:800;
+  text-decoration:none;padding:13px 22px;border-radius:14px;transition:.2s}
+.cta:hover{filter:brightness(1.06);transform:translateY(-2px)}
+
+.warn{display:flex;gap:12px;align-items:flex-start;background:var(--accent-soft);
+  border:1px solid var(--accent-border);border-radius:16px;padding:14px 16px;margin:22px 0;
+  font-size:14px;line-height:1.55}
+.warn .ico{font-size:18px;line-height:1.4}
+.warn b{color:var(--ink)}
+
+.sections{display:grid;gap:16px;margin:26px 0}
+.section{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:22px;
+  box-shadow:var(--tile-shadow)}
+.section .step{font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--accent)}
+.section h2{font-size:19px;margin:8px 0 8px}
+.section p{color:var(--muted);line-height:1.6;font-size:15px}
+@media(min-width:720px){.sections{grid-template-columns:repeat(3,1fr)}}
+
+/* ---------- predict controls ---------- */
+.predict h1{margin-bottom:0}
+.controls{display:flex;flex-wrap:wrap;gap:14px;align-items:end;margin:22px 0 26px}
+.controls label{display:flex;flex-direction:column;gap:6px;font-size:11px;font-weight:800;
+  text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.controls input,.controls select{font:inherit;font-size:15px;color:var(--ink);background:var(--card);
+  border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:150px;transition:.2s}
+.controls input:focus,.controls select:focus{outline:none;border-color:var(--accent)}
+.btn{font:inherit;font-weight:800;font-size:15px;color:#fff;background:var(--accent);border:none;
+  border-radius:12px;padding:11px 20px;cursor:pointer;transition:.2s}
+.btn:hover{filter:brightness(1.06);transform:translateY(-2px)}
+
+/* ---------- prediction card (same component as 9-themed) ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:24px;
+  box-shadow:var(--card-shadow);transition:background .25s,border-color .25s}
+#box-pred{min-height:232px}
+.match{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+.team{text-align:center;flex:1}
+.team .flag{font-size:44px}
+.team .name{font-weight:800;font-size:18px;margin-top:6px}
+.vs{color:var(--muted);font-weight:800;font-size:13px;letter-spacing:2px}
+.odds{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.odd{border:1px solid var(--line);border-radius:18px;padding:16px;text-align:center;transition:.2s}
+.odd:hover{transform:translateY(-2px)}
+.odd.win{background:var(--odd-bg-win)} .odd.draw{background:var(--odd-bg-draw)} .odd.loss{background:var(--odd-bg-loss)}
+.odd .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.odd .pct{font-size:32px;font-weight:900;margin-top:6px}
+.odd.win .pct{color:var(--win)} .odd.draw .pct{color:var(--draw)} .odd.loss .pct{color:var(--loss)}
+.odd .bar{height:4px;border-radius:3px;margin-top:10px;background:var(--bar-track);overflow:hidden}
+.odd .bar i{display:block;height:100%;border-radius:3px}
+.odd.win .bar i{background:var(--win)} .odd.draw .bar i{background:var(--draw)} .odd.loss .bar i{background:var(--loss)}
+.scoreline{margin-top:18px;padding-top:18px;border-top:1px solid var(--line);
+  display:flex;justify-content:space-between;align-items:center}
+.scoreline .k{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1.5px}
+/* neutral ink (not the accent/draw colour), and lighter weight — it was too heavy */
+.scoreline .v{font-weight:700;font-size:30px;color:var(--ink)}
+
+/* ---------- feature tiles + two-team (duo) layout ---------- */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:20px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:18px;
+  min-height:132px;box-shadow:var(--tile-shadow);transition:background .25s,border-color .25s}
+.tile .t{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px}
+.tile .sub{font-size:12px;color:var(--muted);margin-top:10px}
+/* Two teams as a tidy two-row list: name left, value right. The values line up
+   in a clean right-hand column — looks better than side-by-side, which felt
+   lopsided. Heading .t above stays left-aligned, so everything shares one left
+   edge and one right edge. */
+.duo{display:flex;flex-direction:column;margin-top:10px}
+.duo-item{display:flex;justify-content:space-between;align-items:baseline;padding:9px 0}
+.duo-item + .duo-item{border-top:1px solid var(--line)}   /* subtle divider between the two rows */
+.duo-item .who{font-size:14px;font-weight:600;color:var(--ink)}   /* team NAME only, no flag */
+/* feature numbers are NON-COLOURED in BOTH themes (plain ink), per request */
+.duo-item .val{font-size:24px;font-weight:900;color:var(--ink);font-variant-numeric:tabular-nums}
+
+/* ---------- loading state (spinner) ---------- */
+.loading{display:flex;align-items:center;justify-content:center;gap:10px;color:var(--muted);
+  font-size:14px}
+.card>.loading{min-height:184px}
+.tile>.loading{min-height:96px}
+.spinner{width:18px;height:18px;border-radius:50%;border:3px solid var(--line);
+  border-top-color:var(--accent);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.foot{margin-top:34px;color:var(--muted);font-size:12px;text-align:center;letter-spacing:1px}

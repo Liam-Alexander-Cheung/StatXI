@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StatXI — Warm Dark</title>
+<style>
+  /* ===== Take 7: Warm Dark =====
+     Dark, but playful and friendly instead of clinical — warm charcoal,
+     coral + amber accents, rounder shapes. The "fun dark" option. */
+  :root{
+    --bg:#15110f; --panel:#211b18; --panel2:#1a1512; --line:#33291f;
+    --coral:#ff7a5c; --amber:#ffc861; --teal:#4fd6c4;
+    --text:#f4ece4; --muted:#9c8b7c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Trebuchet MS",system-ui,sans-serif;background:var(--bg);color:var(--text);
+    padding:34px 20px;min-height:100vh;
+    background-image:radial-gradient(700px 380px at 90% -8%, rgba(255,122,92,.16), transparent)}
+  .wrap{max-width:960px;margin:0 auto}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:24px}
+  .logo{font-weight:900;font-size:25px;letter-spacing:-.5px}
+  .logo b{color:var(--coral)}
+  .pill{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;color:var(--amber);
+    background:rgba(255,200,97,.12);border:1px solid rgba(255,200,97,.3);padding:4px 12px;border-radius:20px}
+  .hero{margin:6px 0 30px}
+  .hero h1{font-size:clamp(30px,5.5vw,48px);font-weight:900;line-height:1.05;letter-spacing:-1px}
+  .hero h1 span{color:var(--coral)}
+  .hero p{color:var(--muted);margin-top:10px;font-size:16px;max-width:540px}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:24px;
+    box-shadow:0 16px 40px rgba(0,0,0,.45)}
+  .match{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+  .team{text-align:center;flex:1}
+  .team .flag{font-size:44px}
+  .team .name{font-weight:800;font-size:18px;margin-top:6px}
+  .vs{color:var(--coral);font-weight:900;font-size:15px;letter-spacing:1px}
+  .odds{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .odd{background:var(--panel2);border:1px solid var(--line);border-radius:18px;padding:16px;text-align:center;transition:.2s}
+  .odd:hover{transform:translateY(-2px)}
+  .odd .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px}
+  .odd .pct{font-size:32px;font-weight:900;margin-top:6px}
+  .odd.win{background:rgba(79,214,196,.08)} .odd.win .pct{color:var(--teal)}
+  .odd.draw{background:rgba(255,200,97,.08)} .odd.draw .pct{color:var(--amber)}
+  .odd.loss{background:rgba(255,122,92,.08)} .odd.loss .pct{color:var(--coral)}
+  .scoreline{margin-top:18px;padding-top:18px;border-top:1px dashed var(--line);
+    display:flex;justify-content:space-between;align-items:center}
+  .scoreline .k{color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1.5px}
+  .scoreline .v{font-weight:900;font-size:30px;color:var(--amber)}
+
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-top:20px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:18px}
+  .tile .t{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px}
+  .tile .big{font-size:32px;font-weight:900;margin-top:8px;color:var(--teal)}
+  .tile:nth-child(2) .big{color:var(--amber)} .tile:nth-child(3) .big{color:var(--coral)}
+  .tile .sub{font-size:13px;color:var(--muted);margin-top:4px}
+  .foot{margin-top:28px;color:var(--muted);font-size:12px;text-align:center;letter-spacing:1px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="logo">Stat<b>XI</b></span><span class="pill">⚽ Model preview</span></div>
+
+  <div class="hero">
+    <h1>Who's <span>winning</span> this one?</h1>
+    <p>Stats do the talking: ML for the result, Poisson for the score. Playful on the surface, serious underneath.</p>
+  </div>
+
+  <div class="card">
+    <div class="match">
+      <div class="team"><div class="flag">🇩🇪</div><div class="name">Germany</div></div>
+      <div class="vs">VS</div>
+      <div class="team"><div class="flag">🇫🇷</div><div class="name">France</div></div>
+    </div>
+    <div class="odds">
+      <div class="odd win"><div class="lbl">Germany</div><div class="pct">41%</div></div>
+      <div class="odd draw"><div class="lbl">Draw</div><div class="pct">27%</div></div>
+      <div class="odd loss"><div class="lbl">France</div><div class="pct">32%</div></div>
+    </div>
+    <div class="scoreline"><span class="k">Most likely scoreline</span><span class="v">1 – 1</span></div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="t">Rolling form</div><div class="big">0.68</div><div class="sub">Germany, last 10 yrs</div></div>
+    <div class="tile"><div class="t">Head-to-head</div><div class="big">0.44</div><div class="sub">GER win rate vs FRA</div></div>
+    <div class="tile"><div class="t">Squad chemistry</div><div class="big">0.31</div><div class="sub">club-cohesion index</div></div>
+  </div>
+
+  <div class="foot">TAKE 7 · WARM DARK (playful) · mock data for preview</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StatXI — Glassmorphic</title>
+<style>
+  /* ===== Aesthetic 4: Glassmorphic gradient =====
+     Animated vivid gradient, frosted glass cards, soft glows. */
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"SF Pro Display",system-ui,sans-serif;color:#fff;min-height:100vh;padding:36px 20px;
+    background:linear-gradient(120deg,#6a11cb,#2575fc,#ec38bc,#ff6a88);background-size:300% 300%;
+    animation:flow 14s ease infinite}
+  @keyframes flow{0%{background-position:0 50%}50%{background-position:100% 50%}100%{background-position:0 50%}}
+  .wrap{max-width:920px;margin:0 auto}
+  .brand{font-weight:800;font-size:26px;letter-spacing:-.5px;margin-bottom:26px;
+    text-shadow:0 2px 20px rgba(0,0,0,.2)}
+  .brand span{opacity:.7;font-weight:400;font-size:14px;margin-left:8px}
+  .hero{margin-bottom:30px}
+  .hero h1{font-size:clamp(30px,6vw,50px);font-weight:800;line-height:1.05;letter-spacing:-1px;
+    text-shadow:0 4px 30px rgba(0,0,0,.25)}
+  .hero p{margin-top:12px;font-size:16px;opacity:.9;max-width:560px}
+
+  .glass{background:rgba(255,255,255,.14);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+    border:1px solid rgba(255,255,255,.28);border-radius:24px;padding:26px;
+    box-shadow:0 20px 50px rgba(0,0,0,.2)}
+  .match{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}
+  .team{text-align:center;flex:1}
+  .team .flag{font-size:46px;filter:drop-shadow(0 4px 12px rgba(0,0,0,.25))}
+  .team .name{font-weight:700;font-size:18px;margin-top:6px}
+  .vs{opacity:.7;font-weight:800;letter-spacing:2px}
+  .odds{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+  .odd{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.25);border-radius:16px;
+    padding:18px;text-align:center;transition:.25s}
+  .odd:hover{background:rgba(255,255,255,.28);transform:translateY(-3px)}
+  .odd .l{font-size:12px;opacity:.85;text-transform:uppercase;letter-spacing:1.5px}
+  .odd .p{font-size:32px;font-weight:800;margin-top:6px}
+  .score{margin-top:20px;padding-top:18px;border-top:1px solid rgba(255,255,255,.22);
+    display:flex;justify-content:space-between;align-items:center}
+  .score .k{opacity:.85;font-size:13px;text-transform:uppercase;letter-spacing:1.5px}
+  .score .v{font-size:30px;font-weight:800}
+
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-top:22px}
+  .tile{background:rgba(255,255,255,.14);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,.25);border-radius:18px;padding:18px}
+  .tile .n{font-size:32px;font-weight:800}
+  .tile .l{font-size:12px;opacity:.85;text-transform:uppercase;letter-spacing:1.5px;margin-top:4px}
+  .foot{margin-top:30px;text-align:center;opacity:.8;font-size:12px;letter-spacing:1px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">StatXI<span>· football, predicted</span></div>
+
+  <div class="hero">
+    <h1>The match, before it's played.</h1>
+    <p>A machine-learning result model and a Poisson goals simulation, wrapped in something nice to look at.</p>
+  </div>
+
+  <div class="glass">
+    <div class="match">
+      <div class="team"><div class="flag">🇩🇪</div><div class="name">Germany</div></div>
+      <div class="vs">VS</div>
+      <div class="team"><div class="flag">🇫🇷</div><div class="name">France</div></div>
+    </div>
+    <div class="odds">
+      <div class="odd"><div class="l">Germany</div><div class="p">41%</div></div>
+      <div class="odd"><div class="l">Draw</div><div class="p">27%</div></div>
+      <div class="odd"><div class="l">France</div><div class="p">32%</div></div>
+    </div>
+    <div class="score"><span class="k">Most likely scoreline</span><span class="v">1 – 1</span></div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="n">0.68</div><div class="l">Germany form</div></div>
+    <div class="tile"><div class="n">0.44</div><div class="l">H2H win rate</div></div>
+    <div class="tile"><div class="n">0.31</div><div class="l">Squad chemistry</div></div>
+  </div>
+
+  <div class="foot">AESTHETIC 4 · GLASSMORPHIC GRADIENT · mock data for preview</div>
+</div>
+</body>
+</html>

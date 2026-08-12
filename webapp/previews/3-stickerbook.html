@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StatXI — Sticker Book</title>
+<style>
+  /* ===== Aesthetic 3: Retro football sticker-book =====
+     Playful, tactile, bold shapes, warm palette, badge motifs. */
+  :root{
+    --cream:#fff4e0; --ink:#22303a; --card:#ffffff;
+    --red:#e8503a; --teal:#159e8a; --gold:#f4b731; --navy:#20364a;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Trebuchet MS","Segoe UI",sans-serif;background:var(--cream);color:var(--ink);
+    background-image:radial-gradient(circle at 12px 12px, rgba(0,0,0,.04) 2px, transparent 0);
+    background-size:24px 24px;padding:32px 20px;min-height:100vh}
+  .wrap{max-width:880px;margin:0 auto}
+  .brand{display:inline-flex;align-items:center;gap:10px;background:var(--navy);color:#fff;
+    padding:8px 16px;border-radius:40px;font-weight:900;font-size:22px;letter-spacing:-.5px;
+    box-shadow:4px 4px 0 var(--gold)}
+  .brand .dot{width:12px;height:12px;border-radius:50%;background:var(--gold)}
+  .hero{text-align:center;margin:30px 0}
+  .hero h1{font-size:clamp(30px,6vw,48px);font-weight:900;line-height:1.05;color:var(--navy);
+    text-shadow:2px 2px 0 var(--gold)}
+  .hero p{margin-top:12px;color:#5a6b78;font-weight:600;font-size:16px}
+
+  .sticker{background:var(--card);border:4px solid var(--navy);border-radius:20px;padding:22px;
+    box-shadow:8px 8px 0 var(--navy);position:relative}
+  .sticker::before{content:"⭐ MATCH OF THE DAY";position:absolute;top:-14px;left:24px;background:var(--red);
+    color:#fff;font-weight:900;font-size:12px;letter-spacing:1px;padding:5px 12px;border-radius:20px;
+    border:3px solid var(--navy)}
+  .match{display:flex;align-items:center;justify-content:space-around;margin:14px 0 20px}
+  .player{text-align:center}
+  .player .badge{width:78px;height:78px;border-radius:16px;background:var(--teal);display:flex;align-items:center;
+    justify-content:center;font-size:42px;margin:0 auto;border:4px solid var(--navy);box-shadow:3px 3px 0 var(--gold)}
+  .player.b .badge{background:var(--red)}
+  .player .nm{font-weight:900;margin-top:8px;font-size:16px}
+  .versus{font-weight:900;font-size:26px;color:var(--red);transform:rotate(-8deg)}
+  .odds{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  .odd{border:3px solid var(--navy);border-radius:14px;padding:14px 8px;text-align:center;background:var(--cream)}
+  .odd .l{font-size:12px;font-weight:900;text-transform:uppercase}
+  .odd .p{font-size:30px;font-weight:900;margin-top:4px}
+  .odd.w{background:#d8f3ee} .odd.d{background:#fff2cc} .odd.l{background:#fde0da}
+  .odd.w .p{color:var(--teal)} .odd.d .p{color:#c9971a} .odd.l .p{color:var(--red)}
+  .score{margin-top:16px;text-align:center;font-weight:900}
+  .score .k{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#5a6b78}
+  .score .v{font-size:34px;color:var(--navy);display:inline-block;transform:rotate(-2deg)}
+
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:16px;margin-top:26px}
+  .tile{background:var(--card);border:3px solid var(--navy);border-radius:16px;padding:16px;text-align:center;
+    box-shadow:5px 5px 0 var(--teal)}
+  .tile:nth-child(2){box-shadow:5px 5px 0 var(--red)}
+  .tile:nth-child(3){box-shadow:5px 5px 0 var(--gold)}
+  .tile .n{font-size:30px;font-weight:900;color:var(--navy)}
+  .tile .l{font-size:12px;font-weight:800;text-transform:uppercase;color:#5a6b78;margin-top:4px}
+  .foot{margin-top:30px;text-align:center;color:#8a7a60;font-size:12px;font-weight:700;letter-spacing:1px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="dot"></span>StatXI</div>
+
+  <div class="hero">
+    <h1>Who's gonna win?!</h1>
+    <p>Stats-powered predictions with a bit of playground swagger ⚽</p>
+  </div>
+
+  <div class="sticker">
+    <div class="match">
+      <div class="player"><div class="badge">🇩🇪</div><div class="nm">GERMANY</div></div>
+      <div class="versus">VS</div>
+      <div class="player b"><div class="badge">🇫🇷</div><div class="nm">FRANCE</div></div>
+    </div>
+    <div class="odds">
+      <div class="odd w"><div class="l">Germany</div><div class="p">41%</div></div>
+      <div class="odd d"><div class="l">Draw</div><div class="p">27%</div></div>
+      <div class="odd l"><div class="l">France</div><div class="p">32%</div></div>
+    </div>
+    <div class="score"><div class="k">Predicted scoreline</div><div class="v">1 – 1</div></div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="n">0.68</div><div class="l">GER form</div></div>
+    <div class="tile"><div class="n">0.44</div><div class="l">H2H rate</div></div>
+    <div class="tile"><div class="n">0.31</div><div class="l">Chemistry</div></div>
+  </div>
+
+  <div class="foot">AESTHETIC 3 · RETRO STICKER-BOOK · mock data for preview</div>
+</div>
+</body>
+</html>

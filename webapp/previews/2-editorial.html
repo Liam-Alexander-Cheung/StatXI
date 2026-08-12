@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StatXI — Editorial</title>
+<style>
+  /* ===== Aesthetic 2: Editorial / data-journalism =====
+     Clean light theme, confident type, FiveThirtyEight energy. */
+  :root{
+    --bg:#fbfaf7; --ink:#1a1a1a; --muted:#6b6b6b; --line:#e6e3dc;
+    --red:#e03e3e; --blue:#2f6fed; --amber:#e0a020; --green:#1f9d5c;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Georgia,"Times New Roman",serif;background:var(--bg);color:var(--ink);
+    padding:40px 20px;min-height:100vh}
+  .wrap{max-width:760px;margin:0 auto}
+  .kicker{font-family:system-ui,sans-serif;font-size:12px;font-weight:700;letter-spacing:2.5px;
+    text-transform:uppercase;color:var(--red);border-top:3px solid var(--ink);padding-top:10px;display:inline-block}
+  h1{font-size:clamp(32px,6vw,50px);line-height:1.05;margin:14px 0 10px;font-weight:800;letter-spacing:-.5px}
+  .standfirst{font-size:19px;color:var(--muted);line-height:1.5;max-width:600px}
+  .byline{font-family:system-ui,sans-serif;font-size:13px;color:var(--muted);margin-top:16px;
+    padding-bottom:24px;border-bottom:1px solid var(--line)}
+  .byline b{color:var(--ink)}
+
+  .chart{margin:34px 0;font-family:system-ui,sans-serif}
+  .chart h3{font-size:14px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:4px}
+  .chart .match{font-size:22px;font-weight:800;margin-bottom:18px;font-family:Georgia,serif}
+  .bar-row{display:grid;grid-template-columns:90px 1fr 48px;align-items:center;gap:12px;margin-bottom:10px}
+  .bar-row .lab{font-size:14px;font-weight:600}
+  .bar-track{background:#efece5;border-radius:4px;height:26px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:4px}
+  .bar-row .num{font-size:15px;font-weight:800;text-align:right}
+  .win .bar-fill{background:var(--green)} .draw .bar-fill{background:var(--amber)} .loss .bar-fill{background:var(--blue)}
+
+  .scorebox{font-family:system-ui,sans-serif;background:#fff;border:1px solid var(--line);border-radius:8px;
+    padding:18px 22px;display:flex;justify-content:space-between;align-items:center;margin:8px 0 34px}
+  .scorebox .k{font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted)}
+  .scorebox .v{font-size:30px;font-weight:800;font-family:Georgia,serif}
+
+  .stats{font-family:system-ui,sans-serif;display:grid;grid-template-columns:repeat(3,1fr);gap:0;
+    border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .stat{padding:20px 8px;text-align:center;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:none}
+  .stat .n{font-size:34px;font-weight:800;font-family:Georgia,serif}
+  .stat .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-top:6px}
+  .foot{font-family:system-ui,sans-serif;margin-top:30px;color:var(--muted);font-size:12px;letter-spacing:1px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <span class="kicker">StatXI · Match Model</span>
+  <h1>Germany edge France, but the draw is the story</h1>
+  <p class="standfirst">Our model gives the hosts a narrow lead — yet a one-all is the single most probable result on the board.</p>
+  <p class="byline">A machine-learning result model paired with a <b>Poisson goals simulation</b> · backtested on Euro 2016–24 &amp; WC 2022</p>
+
+  <div class="chart">
+    <h3>Win probability</h3>
+    <div class="match">Germany vs. France</div>
+    <div class="bar-row win"><span class="lab">Germany</span><div class="bar-track"><div class="bar-fill" style="width:41%"></div></div><span class="num">41%</span></div>
+    <div class="bar-row draw"><span class="lab">Draw</span><div class="bar-track"><div class="bar-fill" style="width:27%"></div></div><span class="num">27%</span></div>
+    <div class="bar-row loss"><span class="lab">France</span><div class="bar-track"><div class="bar-fill" style="width:32%"></div></div><span class="num">32%</span></div>
+  </div>
+
+  <div class="scorebox">
+    <span class="k">Most likely scoreline</span>
+    <span class="v">1 – 1</span>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="n">0.68</div><div class="l">Germany form</div></div>
+    <div class="stat"><div class="n">0.44</div><div class="l">H2H win rate</div></div>
+    <div class="stat"><div class="n">0.31</div><div class="l">Squad chemistry</div></div>
+  </div>
+
+  <div class="foot">AESTHETIC 2 · EDITORIAL / DATA-JOURNALISM · mock data for preview</div>
+</div>
+</body>
+</html>
