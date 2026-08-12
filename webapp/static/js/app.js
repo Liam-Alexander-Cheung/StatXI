@@ -7,5 +7,6 @@
   StatXI.router
     .add('/',        StatXI.views.landing)
     .add('/predict', StatXI.views.predict)
+    .add('/detail',  StatXI.views.detail)
     .start();
 })();

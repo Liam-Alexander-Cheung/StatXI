@@ -80,7 +80,9 @@ h1{font-size:clamp(28px,5vw,44px);font-weight:900;line-height:1.06;letter-spacin
 .odd.win{background:var(--odd-bg-win)} .odd.draw{background:var(--odd-bg-draw)} .odd.loss{background:var(--odd-bg-loss)}
 .odd .lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.odd .pct{font-size:32px;font-weight:900;margin-top:6px}
+/* clamps so a range like "40–59%" never wraps; cursor:help hints at the
+   per-model breakdown tooltip (title="Poisson x% · XGBoost y%") */
+.odd .pct{font-size:clamp(20px,4.4vw,30px);font-weight:900;margin-top:6px;white-space:nowrap;cursor:help}
 .odd.win .pct{color:var(--win)} .odd.draw .pct{color:var(--draw)} .odd.loss .pct{color:var(--loss)}
 .odd .bar{height:4px;border-radius:3px;margin-top:10px;background:var(--bar-track);overflow:hidden}
 .odd .bar i{display:block;height:100%;border-radius:3px}
@@ -116,5 +118,44 @@ h1{font-size:clamp(28px,5vw,44px);font-weight:900;line-height:1.06;letter-spacin
 .spinner{width:18px;height:18px;border-radius:50%;border:3px solid var(--line);
   border-top-color:var(--accent);animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+.detail-cta{text-align:center;margin-top:22px}
+.detail-cta a{color:var(--accent);font-weight:800;font-size:14px;text-decoration:none}
+.detail-cta a:hover{text-decoration:underline}
+
+/* ---------- detailed page ---------- */
+.back{display:inline-block;margin-bottom:14px;color:var(--muted);text-decoration:none;font-weight:700;font-size:14px}
+.back:hover{color:var(--accent)}
+.detail-head{display:flex;align-items:center;justify-content:center;gap:28px;margin:6px 0 4px}
+.detail-head .team{text-align:center}
+.detail-head .flag{font-size:44px}
+.detail-head .name{font-weight:800;font-size:18px;margin-top:6px}
+.detail-head .vs{font-size:28px;font-weight:900;color:var(--ink)}
+.detail-date{text-align:center;color:var(--muted);font-size:13px;margin-bottom:20px}
+.detail h3{font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:28px 0 12px}
+
+/* model comparison table */
+.cmp{width:100%;border-collapse:collapse}
+.cmp th,.cmp td{padding:12px 10px;text-align:right;border-bottom:1px solid var(--line);font-size:15px;
+  font-variant-numeric:tabular-nums}
+.cmp thead th{color:var(--muted);text-transform:uppercase;font-size:11px;letter-spacing:1px}
+.cmp th:first-child,.cmp td:first-child{text-align:left;font-weight:700}
+.cmp tbody td:first-child{color:var(--muted);font-weight:600}
+.cmp tr.muted td{color:var(--muted);font-style:italic;text-align:left}
+
+/* scoreline heatmap */
+.heat{display:grid;gap:4px;max-width:440px}
+.heat-corner{font-size:10px;color:var(--muted);display:flex;align-items:center;justify-content:center;text-align:center}
+.heat-hdr{font-size:12px;font-weight:800;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.heat-cell{aspect-ratio:1;border-radius:6px;border:1px solid var(--line);display:flex;align-items:center;
+  justify-content:center;font-size:12px;font-weight:700;color:var(--ink)}
+.heat-cell.hi{outline:2px solid var(--accent);outline-offset:-2px}
+
+/* feature comparison */
+.feat{width:100%;border-collapse:collapse}
+.feat th,.feat td{padding:11px 10px;border-bottom:1px solid var(--line);font-size:15px}
+.feat thead th{color:var(--muted);text-transform:uppercase;font-size:11px;letter-spacing:1px;text-align:center}
+.feat tbody td{text-align:center;font-weight:800;font-variant-numeric:tabular-nums;width:34%}
+.feat tbody th{text-align:center;color:var(--muted);font-weight:600;font-size:13px}
 
 .foot{margin-top:34px;color:var(--muted);font-size:12px;text-align:center;letter-spacing:1px}

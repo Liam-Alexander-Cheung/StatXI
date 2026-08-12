@@ -14,7 +14,8 @@ window.StatXI = window.StatXI || {};
 (function () {
   var routes = {};
 
-  function currentPath(){ return location.hash.replace(/^#/, '') || '/'; }
+  // the path part of the hash, WITHOUT any ?query (so #/detail?home=X matches /detail)
+  function currentPath(){ return location.hash.replace(/^#/, '').split('?')[0] || '/'; }
 
   function render(){
     var view = routes[currentPath()] || routes['/'];   // unknown hash -> home
@@ -31,6 +32,15 @@ window.StatXI = window.StatXI || {};
 
   StatXI.router = {
     add:   function(path, view){ routes[path] = view; return this; },  // chainable
-    start: function(){ window.addEventListener('hashchange', render); render(); }
+    start: function(){ window.addEventListener('hashchange', render); render(); },
+    // parse the "?home=X&away=Y" part of the current hash into an object
+    query: function(){
+      var out = {}, q = (location.hash.split('?')[1] || '');
+      q.split('&').forEach(function(p){
+        if (!p) return;
+        var kv = p.split('='); out[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+      });
+      return out;
+    }
   };
 })();

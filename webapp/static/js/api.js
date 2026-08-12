@@ -58,9 +58,14 @@ window.StatXI = window.StatXI || {};
       });
     },
 
-    // win/draw/loss + most-likely scoreline + expected goals, all from one fit
+    // win/draw/loss (Poisson + XGBoost) + scoreline + expected goals, from one fit
     getPrediction: function(a, b, date){
       return getJSON('/api/predict?' + qs({ home: a, away: b, date: date }));
+    },
+
+    // the detailed page's everything: all W/D/L sources + bookmaker + grid + features
+    getDetail: function(a, b, date){
+      return getJSON('/api/detail?' + qs({ home: a, away: b, date: date }));
     }
   };
 })();

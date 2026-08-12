@@ -10,8 +10,21 @@ StatXI.views = StatXI.views || {};
   var api = StatXI.api;
 
   // --- formatting helpers (null-safe: missing data shows "—", never a fake 0) ---
-  function pct(x){ return (x === null || x === undefined || isNaN(x)) ? '—' : Math.round(x * 100) + '%'; }
   function num(x){ return (x === null || x === undefined || isNaN(x)) ? '—' : Number(x).toFixed(2); }
+  // the RANGE spanning the two models (Poisson ↔ XGBoost), e.g. "34–40%".
+  // Falls back to a single value when XGBoost is unavailable.
+  function rangeStr(p, q){
+    if (p === null || p === undefined || isNaN(p)) return '—';
+    if (q === null || q === undefined || isNaN(q)) return Math.round(p * 100) + '%';
+    var lo = Math.round(Math.min(p, q) * 100), hi = Math.round(Math.max(p, q) * 100);
+    return lo === hi ? lo + '%' : lo + '–' + hi + '%';
+  }
+  // hover tooltip on the number: which model said what
+  function rangeTitle(p, q){
+    var pp = (p === null || p === undefined || isNaN(p)) ? '—' : Math.round(p * 100) + '%';
+    if (q === null || q === undefined || isNaN(q)) return 'Poisson ' + pp;
+    return 'Poisson ' + pp + '  ·  XGBoost ' + Math.round(q * 100) + '%';
+  }
   function spinner(){ return '<div class="loading"><span class="spinner"></span> Loading…</div>'; }
   function errorBox(msg){ return '<div class="loading">⚠ ' + msg + '</div>'; }
 
@@ -26,12 +39,15 @@ StatXI.views = StatXI.views || {};
       '<div class="sub">' + sub + '</div>';
   }
 
-  function oddCol(cls, label, p){
+  // p = Poisson prob, q = XGBoost prob; the cell shows their range, bar = midpoint
+  function oddCol(cls, label, p, q){
+    var mid = (q === null || q === undefined || isNaN(q)) ? (p || 0) : (p + q) / 2;
     return '<div class="odd ' + cls + '"><div class="lbl">' + label + '</div>' +
-      '<div class="pct">' + pct(p) + '</div>' +
-      '<div class="bar"><i style="width:' + Math.round((p || 0) * 100) + '%"></i></div></div>';
+      '<div class="pct" title="' + rangeTitle(p, q) + '">' + rangeStr(p, q) + '</div>' +
+      '<div class="bar"><i style="width:' + Math.round(mid * 100) + '%"></i></div></div>';
   }
   function fillPrediction(el, d, a, b){
+    var P = d.poisson || {}, X = d.xgb || {};   // X absent if XGBoost unavailable
     el.innerHTML =
       '<div class="match">' +
         '<div class="team"><div class="flag">' + StatXI.flag(a) + '</div><div class="name">' + a + '</div></div>' +
@@ -39,9 +55,9 @@ StatXI.views = StatXI.views || {};
         '<div class="team"><div class="flag">' + StatXI.flag(b) + '</div><div class="name">' + b + '</div></div>' +
       '</div>' +
       '<div class="odds">' +
-        oddCol('win',  a,      d.home_win) +
-        oddCol('draw', 'Draw', d.draw) +
-        oddCol('loss', b,      d.away_win) +
+        oddCol('win',  a,      P.home_win, X.home_win) +
+        oddCol('draw', 'Draw', P.draw,     X.draw) +
+        oddCol('loss', b,      P.away_win, X.away_win) +
       '</div>' +
       '<div class="scoreline"><span class="k">Most likely scoreline</span>' +
         '<span class="v">' + d.scoreline + '</span></div>';
@@ -50,6 +66,11 @@ StatXI.views = StatXI.views || {};
   function run(root, a, b, date){
     var results = root.querySelector('#results');
     results.hidden = false;
+
+    // point the "Full analysis" link at the detail page for THIS matchup
+    var link = root.querySelector('#detailLink');
+    if (link) link.href = '#/detail?home=' + encodeURIComponent(a) +
+      '&away=' + encodeURIComponent(b) + '&date=' + encodeURIComponent(date);
 
     var boxPred = root.querySelector('#box-pred');
     var boxForm = root.querySelector('#box-form');
@@ -93,6 +114,7 @@ StatXI.views = StatXI.views || {};
             '<div class="tile" id="box-h2h"></div>' +
             '<div class="tile" id="box-xg"></div>' +
           '</div>' +
+          '<div class="detail-cta"><a id="detailLink" href="#/detail">Full analysis (XGBoost · bookmaker · scoreline grid) →</a></div>' +
         '</div>' +
       '</section>';
     },
