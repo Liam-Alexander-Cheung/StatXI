@@ -1,0 +1,57 @@
+{
+  "name": "FIFA World Cup",
+  "year": 2022,
+  "start_date": "2022-11-20",
+  "format": "wc32",
+  "qualify_per_group": 2,
+  "_comment": "Hand-encoded SOURCE data (committed, unlike the regenerable DB). Team names use the matches-table DB spelling (Iran / United States / South Korea, verified). Group draw + knockout bracket cross-checkable against https://en.wikipedia.org/wiki/2022_FIFA_World_Cup (Tomas's manual-verification domain). Bracket 'home'/'away' are venue-neutral labels only: '1A'=winner of group A, '2B'=runner-up of group B, 'W49'=winner of match 49. Match ids follow FIFA's official numbering (R16 49-56, QF 57-60, SF 61-62, Final 64; the 3rd-place match 63 is omitted, it does not affect champion probabilities).",
+  "groups": {
+    "A": ["Qatar", "Ecuador", "Senegal", "Netherlands"],
+    "B": ["England", "Iran", "United States", "Wales"],
+    "C": ["Argentina", "Saudi Arabia", "Mexico", "Poland"],
+    "D": ["France", "Australia", "Denmark", "Tunisia"],
+    "E": ["Spain", "Costa Rica", "Germany", "Japan"],
+    "F": ["Belgium", "Canada", "Morocco", "Croatia"],
+    "G": ["Brazil", "Serbia", "Switzerland", "Cameroon"],
+    "H": ["Portugal", "Ghana", "Uruguay", "South Korea"]
+  },
+  "bracket": {
+    "R16": [
+      {"id": 49, "home": "1A", "away": "2B"},
+      {"id": 50, "home": "1C", "away": "2D"},
+      {"id": 51, "home": "1D", "away": "2C"},
+      {"id": 52, "home": "1B", "away": "2A"},
+      {"id": 53, "home": "1E", "away": "2F"},
+      {"id": 54, "home": "1G", "away": "2H"},
+      {"id": 55, "home": "1F", "away": "2E"},
+      {"id": 56, "home": "1H", "away": "2G"}
+    ],
+    "QF": [
+      {"id": 57, "home": "W53", "away": "W54"},
+      {"id": 58, "home": "W49", "away": "W50"},
+      {"id": 59, "home": "W55", "away": "W56"},
+      {"id": 60, "home": "W52", "away": "W51"}
+    ],
+    "SF": [
+      {"id": 61, "home": "W58", "away": "W57"},
+      {"id": 62, "home": "W60", "away": "W59"}
+    ],
+    "F": [
+      {"id": 64, "home": "W61", "away": "W62"}
+    ]
+  },
+  "actual": {
+    "champion": "Argentina",
+    "runner_up": "France",
+    "semi_finalists": ["Argentina", "France", "Croatia", "Morocco"],
+    "quarter_finalists": ["Argentina", "France", "Croatia", "Morocco", "Netherlands", "Portugal", "Brazil", "England"],
+    "group_winners": {
+      "A": "Netherlands", "B": "England", "C": "Argentina", "D": "France",
+      "E": "Japan", "F": "Morocco", "G": "Brazil", "H": "Portugal"
+    },
+    "group_runners_up": {
+      "A": "Senegal", "B": "United States", "C": "Poland", "D": "Australia",
+      "E": "Spain", "F": "Croatia", "G": "Switzerland", "H": "South Korea"
+    }
+  }
+}

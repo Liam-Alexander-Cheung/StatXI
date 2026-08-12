@@ -1728,3 +1728,89 @@ paired CIs — and whether a blend beats routing. Until then the "AI insight" pa
 should show a single honest model (Poisson, the broad-block winner), never a
 routed/blended number dressed up as validated. Ties into the unbuilt "AI insight"
 frontend item — build it only with real, validated numbers.
+
+## Monte Carlo tournament simulator (Poisson Phases A–E)
+
+The Poisson/Dixon-Coles model predicts one match's full scoreline distribution. A
+*tournament* winner is not a formula over those — it branches combinatorially (who
+you might meet depends on who they beat, and so on). The textbook tool is **Monte
+Carlo**: play the whole tournament thousands of times, rolling each match on its
+Poisson distribution, and read each team's win probability off the frequency it
+lifts the trophy. Built in `src/models/montecarlo.py` (+ `src/tournaments/` config),
+five verifiable phases, reusing the Phase 1–5 Poisson layer unchanged (numpy only,
+no new dependency). Decision (from the plan): build + validate on **WC 2022** — the
+clean 32-team format — first; Euro's 24-team "best-thirds" is a later extension.
+
+### The one hard new cost: tournament STRUCTURE is not in the data
+The `matches` table is only `date/teams/scores/tournament/neutral` — no stage,
+group, or bracket column, and penalty knockouts are stored as draws with no winner.
+So the group draw and knockout wiring must be **hand-encoded as SOURCE data**
+(`src/tournaments/wc2022.json`, committed — unlike the regenerable DB). Team names
+use the DB's spelling, verified against the `matches` table up front (the trap:
+**Iran** not "IR Iran", **United States** not "USA", **South Korea** not "Korea
+Republic"). The loader (`src/tournaments/__init__.py`) validates the config's own
+arithmetic (8×4=32 teams, 8+4+2+1 bracket, every group-qualifier slot used once) and
+asserts every team resolves to a fitted strength — failing LOUDLY, never letting a
+typo become a silent league-average phantom (the no-fabrication rule).
+
+### Phase A — the sampler, and one genuinely subtle correctness point
+`sample_scorelines(grid, n, rng)` draws random `(home, away)` scores by sampling
+CELLS from the flattened grid (`rng.choice(size, p=grid.ravel()/sum)`). The subtlety
+that justifies sampling the grid rather than two `rng.poisson` draws: the Dixon-Coles
+correction makes the two goal counts slightly *dependent* in the four low-score
+cells. Independent Poisson draws would silently reproduce only the *uncorrected*
+product model. Verified two ways at n=1e6: MC P(H/D/A) matches analytic
+`wdl_from_grid` to within ~1·(MC std err ≈ 5e-4) on a DC-corrected grid; and with
+rho=0 the grid-sampler matches naive independent `rng.poisson` (the independence
+sanity — they must agree exactly there).
+
+### Phases C–D — group + knockout simulators (vectorised across sims)
+`simulate_group` plays all C(4,2)=6 fixtures at neutral venues, tallies 3/1/0 points
+and ranks by points → goal difference → goals for. Two documented **simplifications**
+vs FIFA's real rules: (1) FIFA breaks ties on head-to-head *before* overall goal
+difference — fiddly to vectorise, rarely changes who advances; (2) exact remaining
+ties are split at random (a tiny per-team random key), standing in for
+fair-play/drawing-of-lots, so no team gains a systematic edge from list position.
+The composite ranking key packs (points, gd, gf, random) into one float with scaled
+gaps so plain descending order reproduces the lexicographic tie-break.
+
+`_play_ties` plays a whole knockout round across all `n` sims at once. The wrinkle:
+different sims send different teams to the same bracket slot, so a "match" is really
+up to (#teams)² distinct matchups. It groups sims by unique (home, away) ROW
+(`np.unique(axis=0)` — a string separator is unsafe, numpy trims embedded null
+bytes, a bug caught in testing) and batch-samples each matchup once, caching grids
+across rounds. A drawn tie resolves by a **~50/50 shootout coin flip** — a documented
+placeholder (shootouts ≈ coin tosses and are stored as draws with no winner; a fitted
+shootout model is a later refinement). `simulate_tournament` returns per-team
+P(reach R16/QF/SF/final/win) with three assertions baked in: reach-probs monotone by
+round, champion probs sum to 1, and each round's reach-probs sum to its slot count
+(16/8/4/2). 20,000 sims run in ~0.5s; reproducible under a fixed seed.
+
+### Phase E — honest backtest on WC 2022, and its two real limitations
+Fitting strengths strictly **before** WC 2022 (`matches[date < t_start]`,
+`reference_date=t_start` — the walk_forward "before T" slice, so it is a true
+pre-tournament forecast), the seeded simulation is sane and matches reputation:
+Brazil / Spain / Argentina / England / Netherlands / France top the board. The actual
+champion **Argentina ranks 3rd** by P(win) (0.106), finalist **France 6th**; both
+firmly top-tier. The two famous overachievers land honestly low — Croatia (SF) 12th,
+Morocco (SF) 20th — the model does not, and should not, retro-predict those runs.
+Round-reach scoring across all 32 teams × 5 stages (160 predictions) **beats the
+no-skill base-rate baseline** on both metrics: Brier 0.105 vs 0.127, log-loss 0.325
+vs 0.401 (`src/models/montecarlo_eval.py`).
+
+**Two limitations stated plainly, not papered over:** (1) this is ONE tournament (≤4
+even adding Euro 2016/2020/2024) — the champion is a single Bernoulli draw, so
+tournament-winner *calibration* cannot be strongly validated; the 160-prediction
+Brier is a sanity check, not a calibration proof. (2) There is **no outright-winner
+odds market** anywhere in this project (odds are per-match 1X2 only), so P(win
+trophy) has no bookmaker benchmark — unlike the per-match engine, which IS CI-
+validated (Phase 4). The simulator's rigor rests on that validated per-match engine
+plus round-level sanity.
+
+### Later (explicitly out of scope here)
+Euro's 24-team "best-thirds" format + config; a fitted shootout model in place of the
+coin flip; the single-match MC as an explicit analytic cross-check inside the
+pipeline; and the clearly-labelled hypothetical Euro 2028 run (needs the Euro format
++ a projected group draw). `python -m src.models.montecarlo` runs the Phase-A
+cross-check and a seeded WC 2022 simulation; `python -m src.models.montecarlo_eval`
+runs the Phase-E backtest.

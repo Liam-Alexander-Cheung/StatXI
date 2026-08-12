@@ -82,15 +82,35 @@ NEXT SESSION — prioritised
              benchmarked (beats XGBoost on the broad block, competitive on finals), and
              the rating_gap question is settled. What remains on the classical-stats half:
 
-           * LATER (own workstream) — MONTE CARLO. Note: Phases 1-5 predict W/D/L by
-             COLLAPSING the scoreline grid; the full scoreline distribution + Dixon-Coles
-             low-score correction are already there (poisson.scoreline_matrix /
-             apply_dixon_coles), so the Monte Carlo work builds on them:
-               - single-match Monte Carlo as a cross-check of the analytic grid (sanity).
-               - full tournament simulator: groups -> knockout bracket, ~50/50 penalty-
-                 shootout resolution for the stored-as-draw knockout games (see the DRAWS
-                 note above), producing per-team advance/win probabilities. ToDo item 7.
-               - THEN backtesting the tournament sim end-to-end (ToDo item 8).
+           * MONTE CARLO — DONE (2026-08-12), Phases A-E, plan reports/montecarlo_plan.md.
+             src/models/montecarlo.py (sampler + group + knockout + tournament),
+             src/tournaments/wc2022.json (hand-encoded structure, COMMITTED as source),
+             src/tournaments/__init__.py (loader + validators), src/models/montecarlo_eval.py.
+             Reuses the Poisson layer unchanged; numpy only, no new dependency.
+               * Phase A — sample_scorelines draws from the DC-corrected GRID (not two
+                 independent rng.poisson — that would drop the correction). Verified n=1e6:
+                 MC P(H/D/A) == analytic wdl_from_grid within MC std err; rho=0 grid-sampler
+                 == naive independent Poisson (independence sanity).
+               * Phase B — wc2022.json: 8 groups + full R16->F bracket, DB spelling verified
+                 (Iran / United States / South Korea, NOT IR Iran/USA/Korea Republic). Loader
+                 validates 32-team/bracket arithmetic + every team resolves to a fit (loud fail).
+               * Phase C — simulate_group: 6 round-robin fixtures, 3/1/0, rank pts->GD->GF
+                 (documented simplification vs FIFA head-to-head; exact ties broken at random).
+                 Vectorised across sims. vs actual WC2022: 10/16 qualifiers matched, all strong
+                 favourites correct, misses = the famous upsets (Japan/Morocco/Senegal). Sane.
+               * Phase D — simulate_knockout via _play_ties (groups sims by unique matchup,
+                 batch-samples, grid cache; drawn tie = ~50/50 shootout coin flip, documented
+                 placeholder). simulate_tournament -> per-team P(reach R16/QF/SF/final/win),
+                 asserts monotone reach + champion probs sum to 1 + round slot counts. 20k sims
+                 in ~0.5s, reproducible under seed. Pre-tournament fit: Brazil/Spain/Argentina/
+                 England/Netherlands/France top; actual champ Argentina 3rd, France 6th.
+               * Phase E — montecarlo_eval.py: round-reach Brier 0.105 vs base-rate 0.127,
+                 log-loss 0.325 vs 0.401 (BEATS no-skill). Limitations stated: 1 tournament
+                 (winner calibration unprovable), NO outright-winner odds market to benchmark.
+             Full arc in methodology.md ("Monte Carlo tournament simulator"). ToDo items 7-8
+             DONE for WC2022; Euro 24-team format + fitted shootout model remain (see LATER).
+               - LATER: Euro "best-thirds" 24-team config; fitted shootout model replacing the
+                 coin flip; hypothetical Euro 2028 run (needs Euro format + projected draw).
          - DRAWS ARE POISSON'S JOB (investigated 2026-08-05, deferred to here).
            The WDL model almost never predicts draws, but this is NOT a bug to
            "fix" in XGBoost: its draw probabilities are already ~perfectly
