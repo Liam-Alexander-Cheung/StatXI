@@ -1814,3 +1814,48 @@ pipeline; and the clearly-labelled hypothetical Euro 2028 run (needs the Euro fo
 + a projected group draw). `python -m src.models.montecarlo` runs the Phase-A
 cross-check and a seeded WC 2022 simulation; `python -m src.models.montecarlo_eval`
 runs the Phase-E backtest.
+
+## Tooling: a `Makefile` so every script is `make <name>`
+
+Small but real friction had built up: nothing in this project runs the same way.
+The model/eval scripts `import from src...`, so they only work as `python -m
+src.models.<x>` **from the repo root** (run them as a plain file and Python can't
+find the `src` package); the webapp runs as `python -m webapp.app`; the data
+scripts run directly; and all of it assumes the right interpreter, which meant
+`source venv/bin/activate` first every single time. That is four different
+invocation rules to remember for one project, and getting one wrong produces a
+confusing `ModuleNotFoundError` that looks like a code bug but isn't.
+
+The `Makefile` encodes each of those rules once. Every recipe calls the venv's
+interpreter by its path (`venv/bin/python`), so **activation is no longer needed** —
+`make montecarlo`, `make poisson-eval`, `make webapp`, etc. A bare `make` prints a
+grouped menu, and `make kill` frees port 5001 when a stale Flask process is squatting
+on it (a failure mode this project hit for real — see the webapp port note). This
+isn't a methodological decision, but it's the kind of small paper-cut removal worth
+recording: the write-up's honest-process narrative includes the boring ergonomics,
+not just the modelling.
+
+Two `make`-specific gotchas worth knowing, since the author is learning this tool:
+recipe lines must be indented with a **real tab**, not spaces (make is famously
+strict about this), and `.PHONY` is declared for every target because these are
+command names, not files — without it, a target would silently do nothing if a
+same-named file ever appeared in the directory.
+
+## Frontend: full visual redesign started (2026-08-12)
+
+The existing `webapp/templates/index.html` is a functional *feature explorer* (five
+tools: rolling form, h2h, goal trend, squad age/depth, chemistry), but it was built
+incrementally for correctness, not for looks. With the prediction models now real
+(XGBoost W/D/L, Poisson scoreline, Monte Carlo tournament), the site finally has an
+actual *prediction* to show, so it's worth a proper redesign rather than bolting a
+sixth panel onto the explorer.
+
+Process note, deliberately low-effort-first: instead of designing one polished page
+blind, the redesign started with **throwaway static mockups** in `webapp/previews/`
+— several complete style directions (dark/bright, different accent palettes), each a
+self-contained HTML file with **mock numbers**, opened side by side to pick a
+direction before writing any real integration code. The mock numbers are clearly
+labelled as such in every preview footer, consistent with the project's never-
+fabricate-data rule: these are design swatches, not results, and none of them touch
+the API. Only the chosen direction gets built for real — wired to the live Flask
+endpoints, with the prediction card driven by actual model output.

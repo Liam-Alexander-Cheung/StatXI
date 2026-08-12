@@ -59,8 +59,9 @@ see "Practical notes" below). Three areas:
   from Wikipedia, real foreign keys, 18 tournaments / 432 squads / 10,038
   player-tournament rows
 
-**Prediction layer:** XGBoost classifier + Poisson/Monte Carlo simulator,
-both currently stubs (see "What's not done yet").
+**Prediction layer:** XGBoost W/D/L classifier + Poisson/Monte Carlo
+simulator — both built and validated (see `src/models/` under "What's
+built and verified").
 
 **Web layer:** Flask backend (`webapp/`) exposing feature data via a
 simple JSON API, consumed by a plain HTML/JS frontend. Built incrementally,
@@ -152,6 +153,37 @@ not just "the code runs."
   to the API via `fetch()`. No new model logic lives in the web layer —
   it's a thin display layer over functions already proven in
   `src/features.py`
+- **Frontend redesign in progress (as of 2026-08-12):** the current
+  `index.html` is the feature-explorer; a full visual redesign is
+  underway. Static, self-contained style mockups live in
+  `webapp/previews/` (open `previews/index.html`) — these are throwaway
+  vibe comparisons with *mock* numbers, not wired to the API. Once a
+  design is chosen, the chosen one gets built against the real endpoints
+  (including a real prediction card now that the models below exist).
+
+### `src/models/` — the prediction models (both real, not stubs)
+Run any of these via the Makefile (`make <name>`) — see Practical notes.
+- **XGBoost Win/Draw/Loss** — `build_matrix.py` → `train_wdl.py` →
+  `evaluate_wdl.py`, with `multi:softprob` probability output and a strict
+  **temporal** split (train `<2014`, val `2014–2016`, test `2016+`) so the
+  backtest block covers Euro 2016 / WC 2018 / Euro 2020 / WC 2022 / Euro
+  2024. Tuned configs saved (`wdl_xgb.json`, `best_*_config.json`);
+  `walk_forward.py` is the retrain-before-each-tournament variant.
+- **Poisson / Dixon-Coles scoreline model** — `poisson.py` (fits per-team
+  attack/defence strengths by MLE, time-decay weighted, with the
+  Dixon-Coles low-score `rho` correction) + `poisson_eval.py` (Phase 4:
+  Poisson vs XGBoost vs bookmaker, CI-validated per-match). Phase 5's
+  `rating_gap` covariate ablation was tried and **kept off** (redundant
+  with existing signal) — don't re-add it without a backtest showing it
+  helps.
+- **Monte Carlo tournament simulator** — `montecarlo.py` +
+  `montecarlo_eval.py`. Fits strengths strictly *before* a tournament,
+  simulates group + knockout stages (20k sims ~0.5s, seeded/reproducible),
+  returns per-team P(reach round). **WC 2022 backtested** and beats the
+  no-skill base-rate baseline (Brier 0.105 vs 0.127, log-loss 0.325 vs
+  0.401). Two honest limitations documented in methodology.md: only ≤4
+  tournaments of evidence, and no outright-winner odds market to calibrate
+  P(win trophy) against.
 
 ## What's NOT done yet
 
@@ -170,23 +202,27 @@ not just "the code runs."
    by Transfermarkt's WAF as of 2026-07-27 — see methodology.md and the
    `src/data_pipeline.py` note above before resuming. Until this exists,
    don't assume a name match is correct without a human checking it.
-5. **XGBoost classifier** — stub only. No training, tuning, or
-   validation yet. This and the next two items are the single biggest
-   remaining chunk of work.
-6. **Poisson simulation** — stub only. Needs real attack/defence
-   parameter fitting. Open design question, deliberately deferred: whether
-   to add a squad-quality covariate via Poisson regression
-   (`λ = exp(base + attack - defence + β·prodigy_score)`) — don't build
-   this until a backtest shows `goal_trend` doesn't already capture the
-   same signal implicitly.
-7. **Monte Carlo tournament simulator** — not built at all.
-8. **Backtesting** — against Euro 2016/2020/2024 and World Cup 2022,
-   benchmarked against baseline and bookmaker odds. Blocked until 5-7
-   exist.
-9. **Frontend beyond the four built features** — rolling form, h2h, goal
-   trend, and squad age/depth are all live now. Next planned piece is an
-   "AI insight" section at the bottom, once real model predictions exist
-   to show — don't build it with fabricated numbers in the meantime.
+5. ✅ **XGBoost classifier — DONE.** Trained, tuned, temporally
+   validated. See `src/models/` above.
+6. ✅ **Poisson simulation — DONE** (Dixon-Coles, CI-validated per-match).
+   The deferred squad-quality covariate was tried as Phase 5's
+   `rating_gap` ablation and **kept off** — redundant with existing
+   signal, exactly as the "don't build until a backtest shows it helps"
+   note predicted. See `src/models/` above.
+7. ✅ **Monte Carlo tournament simulator — DONE**, WC 2022 backtested and
+   beating the base-rate baseline. See `src/models/` above.
+8. **Backtesting — partially done.** Per-match (Poisson vs XGBoost vs
+   bookmaker) is validated, and WC 2022 has a full pre-tournament
+   tournament backtest. Still to do: the same tournament-level backtest
+   run across Euro 2016/2020/2024 (only WC 2022 has a config so far —
+   `src/tournaments/wc2022.json`), so the trophy-winner claim rests on
+   more than one tournament.
+9. **Frontend redesign + real prediction card.** The five feature tools
+   are live; the visual redesign is underway (see `webapp/previews/`).
+   The planned "AI insight" / prediction section can now show **real**
+   model output (the models in #5–7 exist) — so it's no longer blocked on
+   "don't fabricate numbers," but it must be wired to the actual endpoints,
+   not hardcoded.
 10. **Projektbeschreibung** — the actual 10-15 page written report, due
     January 2027. `reports/methodology.md` is real material for this, not
     a substitute for it.
@@ -231,6 +267,12 @@ not just "the code runs."
 
 - Python 3.9, venv at `./venv` — activate with `source venv/bin/activate`
   before running anything.
+- **`make <name>` runs any script without activating the venv** (see the
+  `Makefile`). Each recipe calls `venv/bin/python` directly and knows the
+  right invocation — model/eval scripts need `python -m src.models.<x>`
+  from the repo root, the webapp needs `python -m webapp.app`. Bare `make`
+  prints the menu; `make webapp` starts Flask on :5001, `make kill` frees
+  a stuck port. This is now the preferred way to run things.
 - **Never commit derived/regenerable data**: `data/statxi.db`,
   `squads_flat_backup.csv`, and everything under `data/raw/` are
   gitignored on purpose. Rebuild via `migrate_to_db.py`,
