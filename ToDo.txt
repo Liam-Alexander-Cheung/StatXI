@@ -186,6 +186,51 @@ NEXT SESSION — prioritised
         - Tournament STAGE weighting (group vs knockout) — distinct from the
           competition-tier importance weights already built; still not done.
 
+DONE THIS SESSION (2026-08-12/13): FRONTEND REDESIGN -> LIVE REAL-DATA WEBAPP
+  - Replaced the old feature-explorer with a 100%-new single-page app served by
+    Flask at / (webapp/static/ + templates/index.html). HTML skeleton + CSS (two
+    themes: Soft Bright default + Refined Dark toggle, persisted) + small classic-
+    script JS modules on one window.StatXI namespace (flags/api/theme/router +
+    views landing/predict/detail + app). No build step; classic scripts (not ES
+    modules) so it works served AND via file://. Design chosen via throwaway
+    mockups in webapp/previews/ (kept as record). Old explorer preserved as
+    templates/legacy_explorer.html, served at /legacy.
+  - LANDING (#/): what/how/why + honest "reference model, not betting advice / not
+    a live Euro 2028 forecast" warning.
+  - PREDICT (#/predict): pick date + two teams -> four boxes load independently
+    with spinners. W/D/L shown as a RANGE spanning the two models (Poisson<->
+    XGBoost, e.g. "22-32%") with a hover tooltip breaking out each model; scoreline
+    + expected goals (Poisson lambda) + rolling form + head-to-head (both teams).
+    Dropped the tournament-scoped squad-chemistry tile for date-scoped Expected
+    Goals so the whole page is date-scoped (no date->tournament mapping needed).
+  - DETAIL (#/detail?home=..&away=..&date=..): "for the nerds" page reached from a
+    "Full analysis" link. All three W/D/L sources side by side (XGBoost, Poisson,
+    bookmaker), the full scoreline probability HEATMAP, and the raw feature values.
+  - FLAG CATALOG (static/js/flags.js): team name -> ISO 3166-1 alpha-2 -> emoji at
+    runtime; England/Scotland/Wales subdivision emoji; 238/311 teams get a real
+    flag, the 73 footballs are all genuinely flag-less (CONIFA/unrecognised/
+    historical/Kosovo/N.Ireland). Verified vs the live team list, no typos.
+  - BACKEND (webapp/app.py):
+      * /api/predict returns BOTH models (poisson + xgb) for the range.
+      * NEW /api/detail: poisson + xgb + bookmaker + 6x6 scoreline grid + features.
+      * XGBoost is DATE-AWARE: retrained per "as of" date on the cached
+        training_matrix via walk_forward._fit_before (leakage-free, ~1.3s, cached
+        per date) -> directly comparable to the date-aware Poisson. One-match
+        inference builds a single 21-feature row (squad+rating NaN for a
+        hypothetical, importance=1.0); class order [H,D,A] from LABEL_TO_INT.
+      * Leakage guard reconfirmed: compute_weights weights but does NOT filter
+        future matches, so the endpoint slices date<ref itself (like walk_forward).
+      * Bookmaker lookup from the matrix's book_ph/pd/pa (either orientation);
+        only real played matches have a line.
+      * /api/rolling-form + /api/h2h are now date-aware (optional ?date=).
+  - Committed + pushed to montecarlo: c0d401c (docs sync) -> ece46e3 (SPA) ->
+    cd4e4af (flags) -> 9113f6f (detail page + range).
+  - NOT DONE (next): Section 2 — the BACKTEST SCORECARD page (model vs bookmaker vs
+    naive-favourite: accuracy/Brier/log-loss across tournaments; walk_forward +
+    montecarlo_eval already compute these, just not surfaced in the UI). Open
+    tradeoff: the XGBoost single-match row NaNs squad+rating and assumes
+    importance=1.0 (fidelity vs simplicity) — revisit if it distorts predictions.
+
 DONE THIS SESSION (2026-08-07): BOOKMAKER-ODDS BENCHMARK + WC2026 DATA
   - The missing half of the judges' hook. Source: hand-exported from Oddsportal
     (Kaggle/football-data.co.uk are CLUB-only; 538 dead; Odds API paid+partial;
@@ -217,12 +262,16 @@ DONE PREVIOUS SESSION: XGB HYPERPARAMETER TUNER (Phase B)
     Both tuning marginals (weighting + hyperparams) are flat.
 
 RUNNING THE WEBAPP
-  - Now on PORT 5001 (port 5000 is taken by macOS AirPlay / stale process):
-        source venv/bin/activate
-        python3 -m webapp.app
-    then open http://127.0.0.1:5001/
-  - If a route 404s / a card loads forever: it's a STALE server process still
-    serving old code. Restart it. (The debug reloader doesn't always fire.)
+  - Simplest:  make webapp   (starts Flask on http://127.0.0.1:5001/, no venv
+    activation needed).  make kill  frees port 5001 if a stale process holds it.
+    (Manual equivalent: source venv/bin/activate; python3 -m webapp.app — port
+    5001, not 5000: macOS AirPlay squats on 5000.)
+  - It's now the SPA (landing / predict / detail), served from webapp/static/ +
+    templates/index.html. Old feature-explorer still at /legacy.
+  - If a route 404s / a card loads forever or the model output looks stale: it's
+    a STALE server process serving old code (the reloader doesn't always fire, and
+    Jinja caches the template in non-debug) — restart it (make kill; make webapp),
+    then HARD-refresh the browser (Cmd+Shift+R) to bypass cached static JS/CSS.
 
 DONE THIS SESSION (TRACK 2 — FIFA ratings into the model, via country pools)
   - Correlation de-risk: mean squad `overall` predicts strongly (r=0.42, higher-

@@ -1859,3 +1859,81 @@ labelled as such in every preview footer, consistent with the project's never-
 fabricate-data rule: these are design swatches, not results, and none of them touch
 the API. Only the chosen direction gets built for real — wired to the live Flask
 endpoints, with the prediction card driven by actual model output.
+
+## Frontend: the redesign, built and wired to real data (2026-08-13)
+
+The chosen direction ("Soft Bright" default + a "Refined Dark" toggle) was built out
+into a proper **single-page app** replacing the old feature-explorer at `/`. The old
+explorer is preserved as `templates/legacy_explorer.html`, still reachable at
+`/legacy`. Structure: an HTML skeleton (`templates/index.html`), CSS split into
+`theme.css` (the two colour themes as CSS-variable blocks) + `styles.css` (layout),
+and several small JS modules under `static/js/`.
+
+**Why classic `<script>` tags and one `window.StatXI` global, not ES modules.**
+ES `import`/`export` is blocked over `file://` by the browser, and the design
+previews needed to open by double-click. Classic scripts sharing a single namespace
+give "multiple clean files" (flags / api / theme / router + views landing/predict/
+detail + app) without a build step, and work identically whether opened as a file or
+served by Flask. The whole app is dependency-free.
+
+**The data layer is one file, and it was the only file that changed mock→real.**
+`static/js/api.js` holds every `fetch`; the views never learned where numbers come
+from. Building the SPA first against a *mock* `api.js` (fake latency so the one-by-one
+box loading was visible with no server), then swapping the four functions to real
+`/api/...` calls, changed nothing else. That isolation is the point of the layer.
+
+**Everything on the predict page is date-scoped — deliberately.** The one feature
+that wasn't (squad chemistry is *tournament*-scoped: it needs "Germany at WC 2022",
+not a date) was replaced on the simple page by **expected goals** (the Poisson λ),
+which is date-scoped. That removed the need for any date→tournament mapping in the UI:
+pick a date and two teams, and form / h2h / xG / prediction are all "as of before
+that date", cleanly.
+
+**The leakage guard for `/api/predict`, restated because it bit here too.**
+`compute_weights` weights matches by recency but does NOT drop matches after the
+reference date — a future match would actually be *up-weighted* (0.5^(negative) > 1).
+So, exactly like `walk_forward`, the endpoint must slice `matches[date < ref]` itself
+before fitting; `fit_dixon_coles` on the full history would leak. Verified against a
+past date (Germany–France "as of" 2024-06-14 gives France favoured, the honest
+pre-tournament number, not the all-history one).
+
+**Date-aware XGBoost single-match inference.** To compare XGBoost against the
+date-aware Poisson *fairly*, the saved pre-2014 model won't do (it's fixed and stale
+for a 2024 prediction). Instead the endpoint retrains XGBoost per "as of" date on the
+**cached feature matrix** (`data/processed/training_matrix.csv`) via `walk_forward`'s
+`_fit_before` — measured at ~1.3 s, cached per date, so it's cheap behind the box's
+spinner and uses the same leakage-free "before T" slice as the backtest. Scoring one
+hypothetical matchup means building a single 21-feature row with the same feature
+functions `build_matrix` uses; the squad + rating columns are left NaN (a pick-two-
+teams match has no tournament squad edition — XGBoost handles missing values
+natively, as it does for ~99 % of non-tournament training rows) and `importance`
+defaults to top-tier. Class order is `[H, D, A]`, fixed by `LABEL_TO_INT` in
+`train_wdl.py`, so it lines up with Poisson's `predict_proba` order for free.
+
+**The simple card shows a range, not two models.** An early version stacked two full
+W/D/L rows (XGBoost + Poisson) on the card; it read as too much. The kept design shows
+each outcome as the **span between the two models** — e.g. "22–32%" — with a hover
+tooltip breaking out each model's number. It surfaces model disagreement (which is
+real: Germany–France 2024 is XGBoost 22 / Poisson 32 for a Germany win) without
+cluttering the quick look. The full three-way detail lives on a separate page.
+
+**The detail page (`#/detail`), and where bookmaker odds actually exist.** Reached
+from a "Full analysis" link that carries the matchup in the hash query
+(`?home=..&away=..&date=..`; the router learned to strip the query when matching the
+path). It shows all three W/D/L sources side by side, the full scoreline-probability
+heatmap, and the raw feature values. Important honesty point that shaped the design:
+**bookmaker odds only exist for matches actually played** (they're joined per match in
+the training matrix as `book_ph/pd/pa`); a hypothetical pick has none. So the
+bookmaker row appears only when the fixture is a real one with a line (matched in
+either home/away orientation, swapping the win probs), and shows "no line for this
+match" otherwise. The WC 2022 final is a good demo — Poisson, XGBoost and the market
+all land within a couple of points of each other.
+
+**Flag catalog by ISO code, not pasted emoji.** `static/js/flags.js` maps each team
+to its ISO 3166-1 alpha-2 code and builds the flag emoji at runtime from the two
+regional-indicator letters (England/Scotland/Wales use their subdivision tag
+sequences). 238 of the 311 teams get a real flag; the 73 that fall back to ⚽ are all
+genuinely flag-less (CONIFA micronations, unrecognised regions, cultural sides,
+defunct states, Kosovo, Northern Ireland — none have a standard emoji). Verified
+against the live team list: no typos (every mapped name is a real team), so a football
+always means "no emoji exists", never a forgotten one.
