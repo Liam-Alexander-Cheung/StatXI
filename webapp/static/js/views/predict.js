@@ -9,6 +9,13 @@ StatXI.views = StatXI.views || {};
 (function () {
   var api = StatXI.api;
 
+  // The last match the user actually ran, remembered for the lifetime of the page.
+  // The SPA re-renders every view from scratch on each navigation, so without this
+  // a trip to the detail page and back (via the link OR the browser back button)
+  // would drop you on an empty form. When set, mount() re-selects those teams/date
+  // and re-runs the prediction so the results are already there on return.
+  var lastRun = null;
+
   // --- formatting helpers (null-safe: missing data shows "—", never a fake 0) ---
   function num(x){ return (x === null || x === undefined || isNaN(x)) ? '—' : Number(x).toFixed(2); }
   // the RANGE spanning the two models (Poisson ↔ XGBoost), e.g. "34–40%".
@@ -122,18 +129,26 @@ StatXI.views = StatXI.views || {};
       var selA = root.querySelector('#teamA');
       var selB = root.querySelector('#teamB');
 
-      // fill both dropdowns from the real team list; default to a meaningful matchup
+      // fill both dropdowns from the real team list, then either restore the last
+      // run (returning from detail) or fall back to a meaningful default matchup
       api.getTeams().then(function(teams){
         var opts = teams.map(function(t){ return '<option>' + t + '</option>'; }).join('');
         selA.innerHTML = opts; selB.innerHTML = opts;
-        selA.value = teams.indexOf('Germany') >= 0 ? 'Germany' : teams[0];
-        selB.value = teams.indexOf('France')  >= 0 ? 'France'  : teams[1];
+        if (lastRun){
+          selA.value = lastRun.a; selB.value = lastRun.b;
+          root.querySelector('#matchDate').value = lastRun.date;
+          run(root, lastRun.a, lastRun.b, lastRun.date);   // results already on screen
+        } else {
+          selA.value = teams.indexOf('Germany') >= 0 ? 'Germany' : teams[0];
+          selB.value = teams.indexOf('France')  >= 0 ? 'France'  : teams[1];
+        }
       });
 
       root.querySelector('#predictForm').addEventListener('submit', function(e){
         e.preventDefault();
         var a = selA.value, b = selB.value, date = root.querySelector('#matchDate').value;
         if (a === b){ alert('Pick two different teams.'); return; }
+        lastRun = { a: a, b: b, date: date };   // remember it for the round-trip to detail
         run(root, a, b, date);
       });
     }

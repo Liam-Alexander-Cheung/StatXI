@@ -66,6 +66,11 @@ window.StatXI = window.StatXI || {};
     // the detailed page's everything: all W/D/L sources + bookmaker + grid + features
     getDetail: function(a, b, date){
       return getJSON('/api/detail?' + qs({ home: a, away: b, date: date }));
-    }
+    },
+
+    // the backtest scorecard: per-tournament + pooled + bookmaker accuracy/
+    // log-loss/Brier. One call; the first one is slow (~7s) because the server
+    // refits a fresh model before each tournament, then caches the result.
+    getScorecard: function(){ return getJSON('/api/scorecard'); }
   };
 })();

@@ -5,8 +5,9 @@
   StatXI.theme.init();
 
   StatXI.router
-    .add('/',        StatXI.views.landing)
-    .add('/predict', StatXI.views.predict)
-    .add('/detail',  StatXI.views.detail)
+    .add('/',          StatXI.views.landing)
+    .add('/predict',   StatXI.views.predict)
+    .add('/detail',    StatXI.views.detail)
+    .add('/scorecard', StatXI.views.scorecard)
     .start();
 })();

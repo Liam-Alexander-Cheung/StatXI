@@ -1937,3 +1937,66 @@ genuinely flag-less (CONIFA micronations, unrecognised regions, cultural sides,
 defunct states, Kosovo, Northern Ireland — none have a standard emoji). Verified
 against the live team list: no typos (every mapped name is a real team), so a football
 always means "no emoji exists", never a forgotten one.
+
+## Frontend: the backtest scorecard page (2026-08-13)
+
+The last planned webapp piece, and the one that actually carries the project's whole
+argument: a `#/scorecard` route ("Does it actually work?") that surfaces the honest
+walk-forward backtest — model vs a naive favourite-picker vs no-skill, and (where odds
+exist) vs the bookmaker — as accuracy / log-loss / Brier across the five backtested
+tournaments. No new modelling; it is a display layer over numbers that already existed
+only in a terminal.
+
+**One number source, not two (`walk_forward.summarize`).** The obvious way to build
+the endpoint — recompute the pooled metrics inside `app.py` — would have created a
+second implementation that could silently drift from `make walk-forward`. Instead
+`walk_forward.py` grew a pure `summarize(rows, pooled) -> dict` that does every metric
+reduction once, and `report()` (the CLI) was rewritten to *print from that dict*. The
+webapp's `/api/scorecard` calls the same `summarize`. So the page and the terminal can
+never disagree by construction. The refactor was verified the project's usual way: the
+full `make walk-forward` output was captured before and after and `diff`'d to
+**byte-identical** — the discipline that has caught real regressions here before (a
+script that deleted a function, one that destroyed its own table).
+
+**Lazy, cached, and deliberately NOT warmed at startup.** The backtest refits a fresh
+XGBoost before each of the five tournaments (~7 s total). The match/squad caches *are*
+warmed at boot because every page needs them; the scorecard is one page, so warming it
+would tax every server start — including someone who only opens the predict page — for
+no reason. It's computed on the first `/api/scorecard` hit and cached in memory
+thereafter. The spinner names the wait honestly ("first load refits a model per
+tournament, ~7 s").
+
+**Two honest framings, because the raw accuracy invites two wrong reads.**
+- *~50% is not a coin-flip.* Football is a three-way outcome (win/draw/loss), so blind
+  random scores ≈33%, not 50%. Without saying so, a judge glancing at "model 50%
+  accuracy" could dismiss it as chance. A callout states the 33% floor and points at
+  the favourite/bookmaker columns as the real yardsticks — never an imagined 50% line.
+- *It rarely picks a draw — and that's not a bug.* A short second note (placed away from
+  the first) restates the earlier finding: the model's draw *probability* is
+  well-calibrated (~23% predicted vs ~23% actual), but a draw is almost never the single
+  most-likely outcome, so it seldom wins the argmax "pick". The proper home for draws is
+  the Poisson scoreline side. This keeps the page from looking like it has a draw defect
+  it doesn't have (see "Draw prediction" above for the full calibration evidence).
+
+**Verdicts generated from the numbers, never hardcoded.** The one-line reads under each
+table ("edges out / roughly matches / trails" the favourite; "beats / fails to beat"
+no-skill; market "a little sharper" vs model "even edges") are computed from the fetched
+values, so if the matrix is ever rebuilt the prose stays true instead of becoming a
+confident lie. The winning cell in each metric face-off is bolded live the same way
+(higher accuracy, lower log-loss/Brier), which is why Euro 2016 honestly shows the
+favourite-picker *beating* the model — the page doesn't hide the tournaments it loses.
+
+**Predict-page state persistence (same session).** Round-tripping Predict → "Full
+analysis" → back landed on an empty form, because the SPA re-renders every view from
+scratch on each hash change and kept no state. Fixed by remembering the last *run*
+match (teams + date) in a module-level variable; on re-mount the predict view
+re-selects it and re-runs. The re-run re-fetches rather than snapshotting old markup —
+cheap, because the Poisson fit and XGBoost model are cached per date — so what you see
+on return is guaranteed consistent, not stale. State is in-memory only (a full reload
+resets to the default matchup), which was the accepted simplicity trade.
+
+**Still CLI-only (next webapp increment).** Two eval sources are not yet surfaced: the
+broad odds-covered block (`broader_eval.py`, n≈2184 with a paired-bootstrap CI on the
+model−market gap) and the Monte Carlo tournament round-reach backtest
+(`montecarlo_eval.py`, WC 2022). Both are the same surfacing-not-modelling job, planned
+as further sections on this page.

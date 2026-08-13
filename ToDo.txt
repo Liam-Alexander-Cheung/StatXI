@@ -8,21 +8,36 @@ WHERE THINGS STAND NOW (2026-08-13)   <<< READ THIS FIRST; blocks below are olde
       * Monte Carlo tournament simulator (WC2022 validated).
       * Bookmaker-odds benchmark (so both halves of the judges' hook exist).
   - WEBAPP — a NEW real-data single-page app is LIVE, on branch `webapp` (this branch).
-    Run it with `make webapp` -> http://127.0.0.1:5001/. Three views:
+    Run it with `make webapp` -> http://127.0.0.1:5001/. Four views:
       * Landing (#/): what / how / why + an honest reference-only warning.
       * Predict (#/predict): pick date + two teams -> W/D/L shown as a RANGE
         (Poisson <-> XGBoost, hover a number for each model) + most-likely scoreline
-        + expected goals + rolling form + head-to-head (both teams).
+        + expected goals + rolling form + head-to-head (both teams). Remembers your
+        last-run match for the session, so Detail -> back doesn't blank the form.
       * Detail (#/detail): all three W/D/L sources (XGBoost / Poisson / bookmaker) +
         scoreline heatmap + raw feature values. Reached via the "Full analysis" link.
+      * Scorecard (#/scorecard): the backtest — see SECTION 2 below.
     Flag catalog (238/311 real flags). Old feature-explorer kept at /legacy.
     Data layer isolated in webapp/static/js/api.js; endpoints in webapp/app.py
-    (/api/predict returns poisson+xgb; /api/detail adds bookmaker+grid+features).
-  - NEXT UP — the one planned webapp piece NOT built yet: SECTION 2, the BACKTEST
-    SCORECARD page. Model vs bookmaker vs naive-favourite: accuracy / Brier / log-loss
-    across tournaments, in a new SPA route. The numbers already exist (walk_forward.py,
-    broader_eval.py, montecarlo_eval.py) — this is surfacing them in the UI, not new
-    modelling. See the newest DONE block below (FRONTEND REDESIGN, 2026-08-12/13).
+    (/api/predict returns poisson+xgb; /api/detail adds bookmaker+grid+features;
+    /api/scorecard returns the walk_forward backtest).
+  - SECTION 2 — BACKTEST SCORECARD page: DONE (2026-08-13). New SPA route #/scorecard
+    ("Does it actually work?"): the walk_forward backtest surfaced as (1) a per-
+    tournament table (Euro 2016 / WC 2018 / Euro 2020 / WC 2022 / Euro 2024: model acc
+    vs favourite acc vs log-loss), (2) pooled model vs naive-favourite vs no-skill
+    (acc / log-loss / Brier), (3) model vs bookmaker on the odds-covered subset
+    (n=153). Winning cell in each face-off is bolded; verdict lines are generated FROM
+    the numbers, not hardcoded. Two honest framing callouts: (a) ~50% is not a coin-flip
+    (3-way game, random=33%), (b) it rarely PICKS a draw but P(draw) is well-calibrated
+    (~23% vs ~23%) — not a bug. New endpoint /api/scorecard (lazy + cached, ~7s first
+    hit). No new modelling — walk_forward.py grew a pure summarize() the CLI report and
+    the API BOTH read (CLI output verified byte-identical after the refactor). Full
+    write-up in methodology.md ("Frontend: the backtest scorecard page").
+  - NEXT UP (webapp, optional follow-ons to the scorecard): the two remaining eval
+    sources NOT yet surfaced — the broad odds-covered block headline (broader_eval.py,
+    n=2184, model vs market with bootstrap CI) and the Monte Carlo tournament
+    round-reach backtest (montecarlo_eval.py, WC2022). Both are separate SPA sections /
+    tiles on the scorecard page; same surfacing-not-modelling pattern.
   - BRANCH NOTE: the frontend history sits on BOTH `webapp` and `montecarlo` (shared
     commits, both pushed). `webapp` is the intended home from here on.
 
@@ -252,11 +267,13 @@ DONE THIS SESSION (2026-08-12/13): FRONTEND REDESIGN -> LIVE REAL-DATA WEBAPP
       * /api/rolling-form + /api/h2h are now date-aware (optional ?date=).
   - Committed + pushed to montecarlo: c0d401c (docs sync) -> ece46e3 (SPA) ->
     cd4e4af (flags) -> 9113f6f (detail page + range).
-  - NOT DONE (next): Section 2 — the BACKTEST SCORECARD page (model vs bookmaker vs
-    naive-favourite: accuracy/Brier/log-loss across tournaments; walk_forward +
-    montecarlo_eval already compute these, just not surfaced in the UI). Open
-    tradeoff: the XGBoost single-match row NaNs squad+rating and assumes
-    importance=1.0 (fidelity vs simplicity) — revisit if it distorts predictions.
+  - Section 2 — the BACKTEST SCORECARD page — DONE 2026-08-13 (see the WHERE-THINGS-
+    STAND block up top for the full description). Remaining webapp surfacing: the broad
+    odds-covered block (broader_eval, n=2184 + CI) and the Monte Carlo round-reach
+    backtest (montecarlo_eval, WC2022) — both still only in the CLI, not the UI.
+  - Open tradeoff still open: the XGBoost single-match row (predict/detail endpoints)
+    NaNs squad+rating and assumes importance=1.0 (fidelity vs simplicity) — revisit if
+    it distorts predictions. Unrelated to the scorecard, which uses the full matrix.
 
 DONE THIS SESSION (2026-08-07): BOOKMAKER-ODDS BENCHMARK + WC2026 DATA
   - The missing half of the judges' hook. Source: hand-exported from Oddsportal

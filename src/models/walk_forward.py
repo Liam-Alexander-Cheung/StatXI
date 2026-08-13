@@ -164,14 +164,19 @@ def walk_forward(df: pd.DataFrame, feature_columns: list[str] = FEATURE_COLUMNS,
     return rows, pooled
 
 
-def report(rows, pooled):
-    """Print the per-tournament table and the pooled aggregate vs baselines."""
-    print(f"\n{'='*76}\nWALK-FORWARD BACKTEST  (fresh model trained before each tournament)\n{'='*76}")
-    print(f"{'tournament':<16}{'n':>4}{'train':>8}{'trees':>7}{'acc':>8}{'form-fav':>10}{'log-loss':>10}")
-    for r in rows:
-        print(f"{r['edition']:<16}{r['n']:>4}{r['n_train']:>8}{r['trees']:>7}"
-              f"{r['acc']:>8.3f}{r['acc_form_fav']:>10.3f}{r['log_loss']:>10.3f}")
+def summarize(rows, pooled) -> dict:
+    """Reduce the raw backtest arrays to the numbers a reader (CLI or API) needs,
+    as a plain dict — ONE source of truth so `report()` (below) and the webapp
+    scorecard endpoint can never drift from each other.
 
+    All values are full floats (no rounding); formatting/rounding is the caller's
+    job. Structure:
+      per_tournament : list of the per-edition row dicts (as produced by
+                       walk_forward), chronological.
+      pooled         : model vs form-favourite vs base-rate across every match.
+      bookmaker      : the same model re-scored on the odds-covered subset next
+                       to the market — or None when no backtested match has odds.
+    """
     y, proba = pooled["y"], pooled["proba"]
     y_int = pd.Series(y).map(LABEL_TO_INT).to_numpy()
     pred = np.array([CLASS_NAMES[i] for i in proba.argmax(axis=1)])
@@ -183,13 +188,19 @@ def report(rows, pooled):
     brier = multiclass_brier(y_int, proba)
     brier_base = multiclass_brier(y_int, pooled["base"])
 
-    print(f"\n{'-'*76}\nPOOLED across all backtested tournaments   (n={len(y)})\n{'-'*76}")
-    print(f"{'metric':<16}{'model':>12}{'form-fav':>12}{'base-rate':>12}")
-    print(f"{'accuracy':<16}{acc:>12.3f}{acc_ff:>12.3f}{'-':>12}")
-    print(f"{'log-loss':<16}{ll:>12.3f}{'-':>12}{ll_base:>12.3f}")
-    print(f"{'brier':<16}{brier:>12.3f}{'-':>12}{brier_base:>12.3f}")
-    print(f"\nmodel vs form-favourite:  accuracy {acc-acc_ff:+.3f}")
-    print(f"model vs base-rate:       log-loss {ll-ll_base:+.3f}  (negative = better than no-skill)")
+    out = {
+        "per_tournament": rows,
+        "pooled": {
+            "n": int(len(y)),
+            "acc_model": float(acc), "acc_form_fav": float(acc_ff),
+            "ll_model": float(ll), "ll_base": float(ll_base),
+            "brier_model": float(brier), "brier_base": float(brier_base),
+            # the two headline deltas the CLI footnotes print
+            "acc_vs_form_fav": float(acc - acc_ff),
+            "ll_vs_base": float(ll - ll_base),
+        },
+        "bookmaker": None,
+    }
 
     # --- bookmaker comparison, on the ODDS-COVERED subset only --------------
     # Not every backtested tournament has odds (Euro 2016 / WC 2018 have none),
@@ -199,18 +210,52 @@ def report(rows, pooled):
     book = pooled["book"]
     covered = ~np.isnan(book).any(axis=1)
     n_cov = int(covered.sum())
-    if n_cov == 0:
+    if n_cov > 0:
+        yb, pb, bb = y_int[covered], proba[covered], book[covered]
+        pred_b = np.array([CLASS_NAMES[i] for i in pb.argmax(axis=1)])
+        predbk = np.array([CLASS_NAMES[i] for i in bb.argmax(axis=1)])
+        yb_str = y[covered]
+        out["bookmaker"] = {
+            "n": n_cov, "n_total": int(len(y)),
+            "acc_model": float(accuracy_score(yb_str, pred_b)),
+            "acc_book": float(accuracy_score(yb_str, predbk)),
+            "ll_model": float(log_loss(yb, pb, labels=CLASSES)),
+            "ll_book": float(log_loss(yb, bb, labels=CLASSES)),
+            "brier_model": float(multiclass_brier(yb, pb)),
+            "brier_book": float(multiclass_brier(yb, bb)),
+        }
+    return out
+
+
+def report(rows, pooled):
+    """Print the per-tournament table and the pooled aggregate vs baselines.
+    Every number comes from `summarize()` so the printed CLI report and the
+    webapp's /api/scorecard are guaranteed identical."""
+    s = summarize(rows, pooled)
+    p, bk = s["pooled"], s["bookmaker"]
+
+    print(f"\n{'='*76}\nWALK-FORWARD BACKTEST  (fresh model trained before each tournament)\n{'='*76}")
+    print(f"{'tournament':<16}{'n':>4}{'train':>8}{'trees':>7}{'acc':>8}{'form-fav':>10}{'log-loss':>10}")
+    for r in s["per_tournament"]:
+        print(f"{r['edition']:<16}{r['n']:>4}{r['n_train']:>8}{r['trees']:>7}"
+              f"{r['acc']:>8.3f}{r['acc_form_fav']:>10.3f}{r['log_loss']:>10.3f}")
+
+    print(f"\n{'-'*76}\nPOOLED across all backtested tournaments   (n={p['n']})\n{'-'*76}")
+    print(f"{'metric':<16}{'model':>12}{'form-fav':>12}{'base-rate':>12}")
+    print(f"{'accuracy':<16}{p['acc_model']:>12.3f}{p['acc_form_fav']:>12.3f}{'-':>12}")
+    print(f"{'log-loss':<16}{p['ll_model']:>12.3f}{'-':>12}{p['ll_base']:>12.3f}")
+    print(f"{'brier':<16}{p['brier_model']:>12.3f}{'-':>12}{p['brier_base']:>12.3f}")
+    print(f"\nmodel vs form-favourite:  accuracy {p['acc_vs_form_fav']:+.3f}")
+    print(f"model vs base-rate:       log-loss {p['ll_vs_base']:+.3f}  (negative = better than no-skill)")
+
+    if bk is None:
         print("\n(no bookmaker odds cover any backtested tournament — skipping market comparison)")
         return
-    yb, pb, bb = y_int[covered], proba[covered], book[covered]
-    pred_b = np.array([CLASS_NAMES[i] for i in pb.argmax(axis=1)])
-    predbk = np.array([CLASS_NAMES[i] for i in bb.argmax(axis=1)])
-    yb_str = y[covered]
-    print(f"\n{'-'*76}\nvs BOOKMAKER  (odds-covered subset, n={n_cov} of {len(y)})\n{'-'*76}")
+    print(f"\n{'-'*76}\nvs BOOKMAKER  (odds-covered subset, n={bk['n']} of {bk['n_total']})\n{'-'*76}")
     print(f"{'metric':<16}{'model':>12}{'bookmaker':>12}")
-    print(f"{'accuracy':<16}{accuracy_score(yb_str, pred_b):>12.3f}{accuracy_score(yb_str, predbk):>12.3f}")
-    print(f"{'log-loss':<16}{log_loss(yb, pb, labels=CLASSES):>12.3f}{log_loss(yb, bb, labels=CLASSES):>12.3f}")
-    print(f"{'brier':<16}{multiclass_brier(yb, pb):>12.3f}{multiclass_brier(yb, bb):>12.3f}")
+    print(f"{'accuracy':<16}{bk['acc_model']:>12.3f}{bk['acc_book']:>12.3f}")
+    print(f"{'log-loss':<16}{bk['ll_model']:>12.3f}{bk['ll_book']:>12.3f}")
+    print(f"{'brier':<16}{bk['brier_model']:>12.3f}{bk['brier_book']:>12.3f}")
     print("\n(lower log-loss/brier = better; the bookmaker is the strong "
           "reference the model is measured against)")
 

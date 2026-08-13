@@ -159,3 +159,19 @@ h1{font-size:clamp(28px,5vw,44px);font-weight:900;line-height:1.06;letter-spacin
 .feat tbody th{text-align:center;color:var(--muted);font-weight:600;font-size:13px}
 
 .foot{margin-top:34px;color:var(--muted);font-size:12px;text-align:center;letter-spacing:1px}
+
+/* ---------- backtest scorecard ---------- */
+.scorecard .lead{max-width:640px}
+.scorecard h3{font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin:30px 0 12px}
+/* context callout: same look as the landing .warn box, but it frames how to
+   read the accuracy numbers rather than carrying a disclaimer */
+.sc-context{display:flex;gap:12px;align-items:flex-start;background:var(--accent-soft);
+  border:1px solid var(--accent-border);border-radius:16px;padding:14px 16px;margin:20px 0 4px;
+  font-size:14px;line-height:1.55;max-width:680px}
+.sc-context .ico{font-size:18px;line-height:1.4}
+.sc-context b{color:var(--ink)}
+.sc-table{margin-bottom:4px}
+/* the winning value in a metric face-off (higher accuracy, or lower log-loss/Brier) */
+.sc-best{font-weight:900;color:var(--accent)}
+.sc-verdict{color:var(--muted);font-size:14px;line-height:1.6;margin:12px 0 4px;max-width:680px}
+.sc-note{color:var(--muted);font-style:italic;font-size:14px;margin-top:8px}
