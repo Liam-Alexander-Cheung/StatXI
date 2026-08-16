@@ -151,43 +151,90 @@ def annual_walk_forward(df: pd.DataFrame,
     return rows, pooled
 
 
-def report(rows, pooled):
+def summarize(rows, pooled) -> dict:
+    """Reduce the broad-block backtest arrays to the numbers a reader (CLI or API)
+    needs, as a plain dict — ONE source of truth so `report()` (below) and the
+    webapp's /api/broad-eval endpoint can never drift from each other. Mirrors the
+    same discipline as walk_forward.summarize().
+
+    All values are full floats (no rounding); formatting is the caller's job.
+    Structure:
+      per_year : the per-calendar-year row dicts (model/book accuracy + log-loss),
+                 exactly as annual_walk_forward produced them, chronological.
+      pooled   : model vs bookmaker vs form-favourite vs base-rate across every
+                 odds-covered match (accuracy / log-loss / brier).
+      ci_book  : paired-bootstrap 95% CI on the per-match (model - bookmaker)
+                 log-loss difference. mean>0 => the market is sharper (expected).
+      ci_base  : same for (model - base-rate). mean<0 => the model beats no-skill
+                 — the bar it MUST clear.
+    """
     y = pooled["y"]
     y_int = pd.Series(y).map(LABEL_TO_INT).to_numpy()
     proba, book, base = pooled["proba"], pooled["book"], pooled["base"]
 
-    print(f"\n{'='*72}\nBROADER MODEL vs BOOKMAKER  (all odds-covered internationals)\n{'='*72}")
-    print(f"{'year':<8}{'n':>6}{'train':>8}{'acc(mdl)':>10}{'acc(bk)':>10}"
-          f"{'ll(mdl)':>10}{'ll(bk)':>10}")
-    for r in rows:
-        print(f"{r['year']:<8}{r['n']:>6}{r['n_train']:>8}"
-              f"{r['acc_model']:>10.3f}{r['acc_book']:>10.3f}"
-              f"{r['ll_model']:>10.3f}{r['ll_book']:>10.3f}")
-
     pred = np.array([CLASS_NAMES[i] for i in proba.argmax(axis=1)])
     predbk = np.array([CLASS_NAMES[i] for i in book.argmax(axis=1)])
-    print(f"\n{'-'*72}\nPOOLED  (n={len(y)})\n{'-'*72}")
-    print(f"{'metric':<12}{'model':>12}{'bookmaker':>12}{'form-fav':>12}{'base-rate':>12}")
-    print(f"{'accuracy':<12}{accuracy_score(y, pred):>12.3f}{accuracy_score(y, predbk):>12.3f}"
-          f"{accuracy_score(y, pooled['form_fav']):>12.3f}{'-':>12}")
-    print(f"{'log-loss':<12}{log_loss(y_int, proba, labels=CLASSES):>12.3f}"
-          f"{log_loss(y_int, book, labels=CLASSES):>12.3f}{'-':>12}"
-          f"{log_loss(y_int, base, labels=CLASSES):>12.3f}")
-    print(f"{'brier':<12}{multiclass_brier(y_int, proba):>12.3f}"
-          f"{multiclass_brier(y_int, book):>12.3f}{'-':>12}"
-          f"{multiclass_brier(y_int, base):>12.3f}")
 
     # Paired bootstrap on the per-match log-loss difference. Positive mean =>
     # model's log-loss is higher => the reference is sharper than the model.
+    # bootstrap_diff_ci is seeded (seed=0), so these are deterministic.
     d_book = per_match_logloss({"y": y, "proba": proba}) - \
              per_match_logloss({"y": y, "proba": book})
     d_base = per_match_logloss({"y": y, "proba": proba}) - \
              per_match_logloss({"y": y, "proba": base})
     pb, lob, hib = bootstrap_diff_ci(d_book)
     pa, loa, hia = bootstrap_diff_ci(d_base)
-    print(f"\nlog-loss diff (model - bookmaker):  {pb:+.4f}  95% CI [{lob:+.4f}, {hib:+.4f}]"
+
+    return {
+        "per_year": rows,
+        "pooled": {
+            "n": int(len(y)),
+            "acc_model": float(accuracy_score(y, pred)),
+            "acc_book": float(accuracy_score(y, predbk)),
+            "acc_form_fav": float(accuracy_score(y, pooled["form_fav"])),
+            "ll_model": float(log_loss(y_int, proba, labels=CLASSES)),
+            "ll_book": float(log_loss(y_int, book, labels=CLASSES)),
+            "ll_base": float(log_loss(y_int, base, labels=CLASSES)),
+            "brier_model": float(multiclass_brier(y_int, proba)),
+            "brier_book": float(multiclass_brier(y_int, book)),
+            "brier_base": float(multiclass_brier(y_int, base)),
+        },
+        "ci_book": {"mean": float(pb), "lo": float(lob), "hi": float(hib)},
+        "ci_base": {"mean": float(pa), "lo": float(loa), "hi": float(hia)},
+    }
+
+
+def report(rows, pooled):
+    """Print the per-year table, the pooled aggregate vs bookmaker/baselines, and
+    the two paired-bootstrap CIs. Every number comes from `summarize()` so the
+    printed CLI report and the webapp's /api/broad-eval are identical by
+    construction."""
+    s = summarize(rows, pooled)
+    p = s["pooled"]
+
+    print(f"\n{'='*72}\nBROADER MODEL vs BOOKMAKER  (all odds-covered internationals)\n{'='*72}")
+    print(f"{'year':<8}{'n':>6}{'train':>8}{'acc(mdl)':>10}{'acc(bk)':>10}"
+          f"{'ll(mdl)':>10}{'ll(bk)':>10}")
+    for r in s["per_year"]:
+        print(f"{r['year']:<8}{r['n']:>6}{r['n_train']:>8}"
+              f"{r['acc_model']:>10.3f}{r['acc_book']:>10.3f}"
+              f"{r['ll_model']:>10.3f}{r['ll_book']:>10.3f}")
+
+    print(f"\n{'-'*72}\nPOOLED  (n={p['n']})\n{'-'*72}")
+    print(f"{'metric':<12}{'model':>12}{'bookmaker':>12}{'form-fav':>12}{'base-rate':>12}")
+    print(f"{'accuracy':<12}{p['acc_model']:>12.3f}{p['acc_book']:>12.3f}"
+          f"{p['acc_form_fav']:>12.3f}{'-':>12}")
+    print(f"{'log-loss':<12}{p['ll_model']:>12.3f}"
+          f"{p['ll_book']:>12.3f}{'-':>12}"
+          f"{p['ll_base']:>12.3f}")
+    print(f"{'brier':<12}{p['brier_model']:>12.3f}"
+          f"{p['brier_book']:>12.3f}{'-':>12}"
+          f"{p['brier_base']:>12.3f}")
+
+    cb, ca = s["ci_book"], s["ci_base"]
+    print(f"\nlog-loss diff (model - bookmaker):  {cb['mean']:+.4f}  95% CI [{cb['lo']:+.4f}, {cb['hi']:+.4f}]"
           f"\n   (>0 => bookmaker sharper; the expected, honest result)")
-    print(f"log-loss diff (model - base-rate):  {pa:+.4f}  95% CI [{loa:+.4f}, {hia:+.4f}]"
+    print(f"log-loss diff (model - base-rate):  {ca['mean']:+.4f}  95% CI [{ca['lo']:+.4f}, {ca['hi']:+.4f}]"
           f"\n   (<0 => model beats no-skill; the bar the model MUST clear)")
 
 

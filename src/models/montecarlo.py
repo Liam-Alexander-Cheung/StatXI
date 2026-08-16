@@ -135,7 +135,12 @@ def simulate_group(teams: list[str], strengths: dict, rng: np.random.Generator,
     gets a systematic edge from its position in the list.
 
     Returns {"winners": (n,) array of team names ranked 1st,
-             "runners_up": (n,) array ranked 2nd}.
+             "runners_up": (n,) array ranked 2nd,
+             "thirds": (n,) array ranked 3rd,
+             "third_key": (n,) ranking-key VALUE of that 3rd-placed team}.
+    The last two are for the Euro 24-team "best thirds" format, where the four best
+    third-placed teams across the six groups also advance; the WC (top-2) path simply
+    ignores them.
     """
     T = len(teams)                       # 4
     points = np.zeros((n, T), dtype=np.int32)
@@ -167,7 +172,15 @@ def simulate_group(teams: list[str], strengths: dict, rng: np.random.Generator,
     teams_arr = np.asarray(teams)
     winners = teams_arr[order[:, 0]]
     runners_up = teams_arr[order[:, 1]]
-    return {"winners": winners, "runners_up": runners_up}
+    # 3rd place too, plus that team's key VALUE. Every group scores its teams with the
+    # identical key formula, so a group's 3rd-placed key is directly comparable to
+    # another group's — which is exactly what the caller needs to rank the six thirds
+    # against each other and pick the four best (the Euro format). take_along_axis
+    # gathers key[sim, order[sim, 2]] for every sim at once.
+    thirds = teams_arr[order[:, 2]]
+    third_key = np.take_along_axis(key, order[:, 2:3], axis=1)[:, 0]
+    return {"winners": winners, "runners_up": runners_up,
+            "thirds": thirds, "third_key": third_key}
 
 
 def group_qualification_probs(teams: list[str], sim: dict) -> dict:
@@ -230,6 +243,70 @@ def _play_ties(home: np.ndarray, away: np.ndarray, strengths: dict,
     return winners
 
 
+def _fill_group_slots(config: dict, strengths: dict, rng: np.random.Generator,
+                      n: int) -> dict:
+    """Simulate every group and return the bracket's group-derived slots as (n,)
+    name arrays.
+
+    Both formats fill the winner/runner-up slots ("1A".."2H" for the World Cup,
+    "1A".."2F" for the Euro). The 24-team Euro format ALSO fills the four best-third
+    slots (3vB/3vC/3vE/3vF): it ranks the six third-placed teams across groups, takes
+    the best four, and routes them to slots via UEFA's fixed anti-rematch table. The
+    World Cup path consumes the rng identically to before this helper existed (same
+    groups, same order), so its results are unchanged."""
+    group_letters = list(config["groups"].keys())
+    group_sims: dict[str, dict] = {}
+    slot: dict[str, np.ndarray] = {}
+    for g in group_letters:
+        sim = simulate_group(config["groups"][g], strengths, rng, n)
+        group_sims[g] = sim
+        slot[f"1{g}"] = sim["winners"]
+        slot[f"2{g}"] = sim["runners_up"]
+
+    if config["format"] == "euro24":
+        _fill_third_slots(config, group_sims, slot, n)
+    return slot
+
+
+def _fill_third_slots(config: dict, group_sims: dict, slot: dict, n: int) -> None:
+    """Fill the four Euro best-third slots (in-place on `slot`).
+
+    Across the six groups, rank the third-placed teams by their (cross-group
+    comparable) key, take the best four, and assign each to a third-slot by UEFA's
+    table. The table is keyed by the SET of the four qualifying-third groups (there
+    are 15 possible sets), and the assignment is rematch-free by construction. This
+    is done with ONE mask per combination (≤15), not a Python loop over the n sims."""
+    group_letters = list(config["groups"].keys())              # A..F
+    letters = np.array(group_letters)
+    # (n, 6): each group's 3rd-placed team name, and that team's ranking-key value.
+    thirds_names = np.stack([group_sims[g]["thirds"] for g in group_letters], axis=1)
+    thirds_keys = np.stack([group_sims[g]["third_key"] for g in group_letters], axis=1)
+    # The four best thirds per sim = the four highest keys; the combination is the
+    # SET of their group letters (sorted -> the canonical key into the UEFA table).
+    top4 = np.argsort(-thirds_keys, axis=1)[:, :4]             # (n, 4) group-col indices
+    combo_keys = np.array(["".join(sorted(row)) for row in letters[top4]])   # (n,)
+
+    # The config carries its own UEFA table (editions differ — see src/tournaments):
+    #   third_slots  e.g. ["3vB","3vC","3vE","3vF"]
+    #   thirds_table {combo -> [group filling each slot, positional to third_slots]}
+    third_slots = config["third_slots"]
+    table = config["thirds_table"]
+    gi = {g: i for i, g in enumerate(group_letters)}
+    for s in third_slots:
+        slot[s] = np.empty(n, dtype=thirds_names.dtype)
+    filled = np.zeros(n, dtype=bool)
+    for combo, row in table.items():
+        mask = combo_keys == combo
+        if not mask.any():
+            continue
+        filled |= mask
+        for s, grp in zip(third_slots, row):
+            slot[s][mask] = thirds_names[mask, gi[grp]]
+    # Every sim resolves to exactly one of the 15 combos (4 distinct of 6 groups) —
+    # fail loudly if any slot went unfilled rather than carry an empty string forward.
+    assert filled.all(), f"{int((~filled).sum())} sims matched no thirds combination"
+
+
 def simulate_tournament(config: dict, strengths: dict, n: int = 10000,
                         seed: int = 0) -> pd.DataFrame:
     """
@@ -247,12 +324,10 @@ def simulate_tournament(config: dict, strengths: dict, n: int = 10000,
     validate_teams(config, strengths)                 # fail loudly on any unknown team
     rng = np.random.default_rng(seed)
 
-    # --- Group stage: fill slot labels "1A".."2H" with (n,) qualifier name arrays --
-    slot: dict[str, np.ndarray] = {}
-    for g, teams in config["groups"].items():
-        sim = simulate_group(teams, strengths, rng, n)
-        slot[f"1{g}"] = sim["winners"]
-        slot[f"2{g}"] = sim["runners_up"]
+    # --- Group stage: fill the bracket's group-derived slots ----------------------
+    # Winner/runner-up slots ("1A".."2H"), plus the four best-third slots for the
+    # 24-team Euro format. _fill_group_slots handles both (World Cup path unchanged).
+    slot = _fill_group_slots(config, strengths, rng, n)
 
     # --- Knockout bracket, round by round -----------------------------------------
     match_winner: dict[int, np.ndarray] = {}          # match id -> (n,) winner names

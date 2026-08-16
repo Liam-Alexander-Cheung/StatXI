@@ -1,0 +1,64 @@
+{
+  "name": "UEFA Euro",
+  "year": 2016,
+  "start_date": "2016-06-10",
+  "format": "euro24",
+  "qualify_per_group": 2,
+  "_comment": "Hand-encoded SOURCE data (committed). First 24-team Euro. Team names use the matches-table DB spelling (Republic of Ireland / Northern Ireland / Czech Republic); the six groups were reconstructed + verified from the DB's group-stage match graph. IMPORTANT: Euro 2016 used a DIFFERENT Round-of-16 layout from Euro 2020/2024 - here the group winners that host a best-third are 1A/1B/1C/1D (third_slots 3vA/3vB/3vC/3vD), and the thirds_table below is Euro 2016's own (NOT the modern one). Verified: the four thirds actually qualified from groups B/C/E/F and thirds_table['BCEF'] reproduces the real R16 exactly (France-Ireland, Wales-Northern Ireland, Germany-Slovakia, Croatia-Portugal). Bracket labels: '1A'=winner group A, '2B'=runner-up B, '3vA'=best-third assigned to the winner of group A, 'W38'=winner of match 38. Cross-checkable against https://en.wikipedia.org/wiki/UEFA_Euro_2016 (Tomas's manual-verification domain). Host France's matches, like all others, are simulated neutral (documented simplification). Sanity: unfancied Portugal (3rd in group F) went on to win - an honest 'the model rated the champion low' case, expected with 1 tournament.",
+  "third_slots": ["3vA", "3vB", "3vC", "3vD"],
+  "thirds_table": {
+    "ABCD": ["C", "D", "A", "B"], "ABCE": ["C", "A", "B", "E"], "ABCF": ["C", "A", "B", "F"],
+    "ABDE": ["D", "A", "B", "E"], "ABDF": ["D", "A", "B", "F"], "ABEF": ["E", "A", "B", "F"],
+    "ACDE": ["C", "D", "A", "E"], "ACDF": ["C", "D", "A", "F"], "ACEF": ["C", "A", "F", "E"],
+    "ADEF": ["D", "A", "F", "E"], "BCDE": ["C", "D", "B", "E"], "BCDF": ["C", "D", "B", "F"],
+    "BCEF": ["E", "C", "B", "F"], "BDEF": ["E", "D", "B", "F"], "CDEF": ["C", "D", "F", "E"]
+  },
+  "groups": {
+    "A": ["France", "Switzerland", "Albania", "Romania"],
+    "B": ["Wales", "England", "Slovakia", "Russia"],
+    "C": ["Germany", "Poland", "Northern Ireland", "Ukraine"],
+    "D": ["Croatia", "Spain", "Turkey", "Czech Republic"],
+    "E": ["Italy", "Belgium", "Republic of Ireland", "Sweden"],
+    "F": ["Hungary", "Iceland", "Portugal", "Austria"]
+  },
+  "bracket": {
+    "R16": [
+      {"id": 37, "home": "2A", "away": "2C"},
+      {"id": 38, "home": "1D", "away": "3vD"},
+      {"id": 39, "home": "1B", "away": "3vB"},
+      {"id": 40, "home": "1F", "away": "2E"},
+      {"id": 41, "home": "1C", "away": "3vC"},
+      {"id": 42, "home": "1E", "away": "2D"},
+      {"id": 43, "home": "1A", "away": "3vA"},
+      {"id": 44, "home": "2B", "away": "2F"}
+    ],
+    "QF": [
+      {"id": 45, "home": "W37", "away": "W38"},
+      {"id": 46, "home": "W39", "away": "W40"},
+      {"id": 47, "home": "W41", "away": "W42"},
+      {"id": 48, "home": "W43", "away": "W44"}
+    ],
+    "SF": [
+      {"id": 49, "home": "W45", "away": "W46"},
+      {"id": 50, "home": "W47", "away": "W48"}
+    ],
+    "F": [
+      {"id": 51, "home": "W49", "away": "W50"}
+    ]
+  },
+  "actual": {
+    "champion": "Portugal",
+    "runner_up": "France",
+    "semi_finalists": ["Portugal", "Wales", "France", "Germany"],
+    "quarter_finalists": ["Portugal", "Wales", "France", "Germany", "Poland", "Belgium", "Italy", "Iceland"],
+    "third_qualifiers": ["Slovakia", "Northern Ireland", "Republic of Ireland", "Portugal"],
+    "group_winners": {
+      "A": "France", "B": "Wales", "C": "Germany",
+      "D": "Croatia", "E": "Italy", "F": "Hungary"
+    },
+    "group_runners_up": {
+      "A": "Switzerland", "B": "England", "C": "Poland",
+      "D": "Spain", "E": "Belgium", "F": "Iceland"
+    }
+  }
+}

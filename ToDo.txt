@@ -33,11 +33,46 @@ WHERE THINGS STAND NOW (2026-08-13)   <<< READ THIS FIRST; blocks below are olde
     hit). No new modelling — walk_forward.py grew a pure summarize() the CLI report and
     the API BOTH read (CLI output verified byte-identical after the refactor). Full
     write-up in methodology.md ("Frontend: the backtest scorecard page").
-  - NEXT UP (webapp, optional follow-ons to the scorecard): the two remaining eval
-    sources NOT yet surfaced — the broad odds-covered block headline (broader_eval.py,
-    n=2184, model vs market with bootstrap CI) and the Monte Carlo tournament
-    round-reach backtest (montecarlo_eval.py, WC2022). Both are separate SPA sections /
-    tiles on the scorecard page; same surfacing-not-modelling pattern.
+  - SECTION 3 — SCORECARD FOLLOW-ONS: DONE (2026-08-16). The two eval sources that were
+    CLI-only are now two more sections on #/scorecard, same surface-not-model pattern:
+      * "The bigger picture — every match with odds" (broader_eval, n=2184): model vs
+        bookmaker vs favourite vs no-skill + the paired-bootstrap CIs (model-book +0.0645
+        CI [+.053,+.076] = market sharper; model-base -0.227 CI [-.248,-.206] = beats no-
+        skill). The finals bookmaker tile above is n=153; this is the same test at ~14x the
+        sample, which is where the CI lives.
+      * "Simulating the whole tournament — WC 2022" (montecarlo_eval): top-8 by P(win),
+        where the actual champ/runner-up/semis ranked (Argentina 3rd, France 6th), round-
+        reach Brier/log-loss vs base-rate (.105/.127, .325/.401 = beats no-skill), + the
+        two honest caveats (one tournament; no winner-odds market) verbatim from the CLI.
+    NO new modelling: broader_eval.report() + montecarlo_eval.run() refactored to print
+    from a pure summarize()/evaluate() the endpoints (/api/broad-eval, /api/montecarlo)
+    also call — both `make` outputs verified BYTE-IDENTICAL before/after, endpoints re-
+    checked vs the CLI to the decimal, view rendered against live JSON (no undefined).
+    Lazy+cached, NOT warmed at startup; the 3 scorecard tiles fetch independently. Full
+    write-up in methodology.md ("The last two eval sources, now on the scorecard").
+  - SECTION 4 — MONTE CARLO BACKTEST BROADENED TO THE EUROS: DONE (2026-08-16). The MC
+    tournament backtest now covers 4 tournaments, not just WC2022: added Euro 2016/2020/
+    2024 (src/tournaments/euro20{16,20,24}.json) + full 24-team "best-thirds" support.
+      * `make montecarlo-eval` now runs ALL FOUR pooled (main()); run("euro2024") for one.
+        POOLED (520 team-round preds): Brier .111 vs .136, log-loss .344 vs .426 = BEATS
+        no-skill. Honest spread: model had Spain #1/24 (Euro24 champ) but the underdog
+        champs Portugal (Euro16, 5th) + Italy (Euro20, 6th) only mid-table — NOT favourite-
+        biased. WC2022 numbers UNCHANGED (Argentina 3/32) — byte-identical throughout.
+      * REAL UEFA best-thirds table (user chose full fidelity): 6 groups, top-2 + 4 best
+        thirds -> R16; the 15-combo anti-rematch table assigns each qualifying third to a
+        group winner. simulate_group now returns 3rd-place + a cross-group key; a vectorised
+        euro24 branch ranks the 6 thirds, takes 4, routes via the table (1 mask per combo).
+      * KEY FINDING: the editions are NOT one shared bracket. Euro 2020/2024 share the
+        modern layout (winners 1B/1C/1E/1F host a third); Euro 2016 DIFFERS (1A/1B/1C/1D)
+        with its OWN table. So the table lives IN each config, not as a shared constant.
+        Verified: 0 same-group R16 rematches for all 3; each config reproduces the real R16
+        draw; groups reconstructed from the DB match graph (not memory). Full write-up in
+        methodology.md ("Broadening the backtest to the three Euros").
+  - NEXT UP (all optional): (a) surface the 4-tournament MC backtest on the #/scorecard page
+    (the WC2022 MC tile exists; broaden it to all four — same surface-not-model pattern);
+    (b) a fitted penalty-shootout model (replaces the ~50/50 coin flip) + the hypothetical
+    Euro 2028 run (needs a projected draw); (c) the STAGE-AWARE MODEL ROUTER stub (still
+    "do NOT build yet"); (d) deadline items (registration Nov 2026, report Jan 2027).
   - BRANCH NOTE: the frontend history sits on BOTH `webapp` and `montecarlo` (shared
     commits, both pushed). `webapp` is the intended home from here on.
 
@@ -150,9 +185,11 @@ NEXT SESSION — prioritised
                  log-loss 0.325 vs 0.401 (BEATS no-skill). Limitations stated: 1 tournament
                  (winner calibration unprovable), NO outright-winner odds market to benchmark.
              Full arc in methodology.md ("Monte Carlo tournament simulator"). ToDo items 7-8
-             DONE for WC2022; Euro 24-team format + fitted shootout model remain (see LATER).
-               - LATER: Euro "best-thirds" 24-team config; fitted shootout model replacing the
-                 coin flip; hypothetical Euro 2028 run (needs Euro format + projected draw).
+             DONE for WC2022; Euro 24-team "best-thirds" format now DONE too (2026-08-16,
+             see the SECTION 4 block up top) — backtest covers 4 tournaments pooled.
+               - LATER (still): fitted penalty-shootout model replacing the ~50/50 coin flip;
+                 hypothetical Euro 2028 run (needs projected draw); surface the 4-tournament
+                 MC backtest on the #/scorecard page.
          - DRAWS ARE POISSON'S JOB (investigated 2026-08-05, deferred to here).
            The WDL model almost never predicts draws, but this is NOT a bug to
            "fix" in XGBoost: its draw probabilities are already ~perfectly

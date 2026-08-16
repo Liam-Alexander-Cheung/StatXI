@@ -37,7 +37,7 @@ help:
 	@echo ""
 	@echo "  MONTE CARLO tournament simulator"
 	@echo "    make montecarlo        Phase-A cross-check + seeded WC2022 simulation"
-	@echo "    make montecarlo-eval   WC2022 pre-tournament backtest (Phase E)"
+	@echo "    make montecarlo-eval   pre-tournament backtest, 4 tournaments pooled (Phase E)"
 	@echo ""
 	@echo "  WDL (XGBoost) model + evaluation"
 	@echo "    make train             train the WDL classifier -> wdl_xgb.json"

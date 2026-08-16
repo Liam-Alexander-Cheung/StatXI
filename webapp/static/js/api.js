@@ -71,6 +71,16 @@ window.StatXI = window.StatXI || {};
     // the backtest scorecard: per-tournament + pooled + bookmaker accuracy/
     // log-loss/Brier. One call; the first one is slow (~7s) because the server
     // refits a fresh model before each tournament, then caches the result.
-    getScorecard: function(){ return getJSON('/api/scorecard'); }
+    getScorecard: function(){ return getJSON('/api/scorecard'); },
+
+    // the broad odds-covered block: model vs bookmaker vs baselines on EVERY
+    // international with a price (n~2184) + paired-bootstrap CIs. First hit is slow
+    // (~10-15s: a fresh model is fit before each covered year), then cached.
+    getBroadEval: function(){ return getJSON('/api/broad-eval'); },
+
+    // the Monte Carlo tournament backtest (WC 2022): top-8 P(win), the actual
+    // deep-run landing check, and round-reach Brier/log-loss vs no-skill. One call,
+    // cached after the first (a pre-tournament fit + 20k simulations).
+    getMonteCarlo: function(){ return getJSON('/api/montecarlo'); }
   };
 })();

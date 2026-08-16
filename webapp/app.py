@@ -6,6 +6,8 @@ from src.features import rolling_form, head_to_head_record, goal_trend, squad_ag
 from src.models.poisson import fit_dixon_coles, predict_match
 from src.models.build_matrix import FEATURE_COLUMNS, MATRIX_PATH
 from src.models.walk_forward import _fit_before, VAL_DAYS, walk_forward, summarize
+from src.models.broader_eval import annual_walk_forward, summarize as broad_summarize
+from src.models.montecarlo_eval import evaluate as montecarlo_evaluate
 
 app = Flask(__name__)
 
@@ -107,6 +109,44 @@ def get_scorecard():
         rows, pooled = walk_forward(get_matrix())
         _scorecard_cache = summarize(rows, pooled)
     return _scorecard_cache
+
+
+# --- Broad odds-covered block: model vs the market at scale (n~2184) ----------
+# The scorecard's bookmaker face-off is FINALS ONLY (n=153) — too small for a
+# confidence interval. This is the same comparison on EVERY international with a
+# de-vigged price, which is where the paired-bootstrap CI gets its power. Same
+# lazy+cached+not-warmed rationale as the scorecard: ~10-15s (a fresh model is fit
+# before each covered calendar year), and only this one tile needs it.
+_broad_eval_cache = None
+
+
+def get_broad_eval():
+    """The broad odds-covered block reduced to display numbers via the SAME
+    broader_eval.summarize() that `make broader-eval` prints from — so the page and
+    the CLI can't drift. Model vs bookmaker vs form-favourite vs base-rate, plus the
+    two paired-bootstrap log-loss CIs. Computed lazily, cached."""
+    global _broad_eval_cache
+    if _broad_eval_cache is None:
+        rows, pooled = annual_walk_forward(get_matrix())
+        _broad_eval_cache = broad_summarize(rows, pooled)
+    return _broad_eval_cache
+
+
+# --- Monte Carlo tournament backtest (WC 2022 round-reach) --------------------
+# The whole tournament simulated from a strictly pre-kickoff fit; per-team
+# P(reach round) scored against what actually happened. Reuses the cached cleaned
+# matches (skips the ~14s re-clean the CLI does standalone). Lazy + cached.
+_montecarlo_cache = None
+
+
+def get_montecarlo():
+    """The Monte Carlo round-reach backtest via the SAME montecarlo_eval.evaluate()
+    `make montecarlo-eval` prints from. WC 2022 only — one tournament, labelled as
+    such in the UI. Computed lazily, cached."""
+    global _montecarlo_cache
+    if _montecarlo_cache is None:
+        _montecarlo_cache = montecarlo_evaluate("wc2022", matches=get_matches())
+    return _montecarlo_cache
 
 
 def _xgb_row(matches, home, away, ref, neutral):
@@ -436,6 +476,81 @@ def api_scorecard():
     }
 
     return jsonify({"tournaments": tournaments, "pooled": pooled, "bookmaker": bookmaker})
+
+
+@app.route("/api/broad-eval")
+def api_broad_eval():
+    # The model-vs-market claim at scale: every odds-covered international (n~2184),
+    # not just the tournament finals. This is where the paired-bootstrap CI lives —
+    # the finals subset on the scorecard (n=153) is too small to carry one. No new
+    # modelling; it surfaces broader_eval's numbers.
+    s = get_broad_eval()
+
+    def r3(x):
+        # round for display; None passes through untouched (never a fake 0)
+        return None if x is None else round(float(x), 3)
+
+    def r4(x):
+        # the CIs are small (~0.06, ~-0.23) and the CLI prints them to 4dp
+        return None if x is None else round(float(x), 4)
+
+    p = s["pooled"]
+    pooled = {
+        "n": int(p["n"]),
+        "acc_model": r3(p["acc_model"]), "acc_book": r3(p["acc_book"]),
+        "acc_form_fav": r3(p["acc_form_fav"]),
+        "ll_model": r3(p["ll_model"]), "ll_book": r3(p["ll_book"]), "ll_base": r3(p["ll_base"]),
+        "brier_model": r3(p["brier_model"]), "brier_book": r3(p["brier_book"]),
+        "brier_base": r3(p["brier_base"]),
+    }
+
+    def ci(c):
+        return {"mean": r4(c["mean"]), "lo": r4(c["lo"]), "hi": r4(c["hi"])}
+
+    return jsonify({"pooled": pooled, "ci_book": ci(s["ci_book"]), "ci_base": ci(s["ci_base"])})
+
+
+@app.route("/api/montecarlo")
+def api_montecarlo():
+    # The whole tournament simulated pre-kickoff (WC 2022): per-team P(reach round)
+    # scored against what actually happened. ONE tournament — the UI labels it so.
+    d = get_montecarlo()
+
+    def r3(x):
+        return None if x is None else round(float(x), 3)
+
+    def r4(x):
+        return None if x is None else round(float(x), 4)
+
+    # top 8 teams by P(win), serialised from the simulation DataFrame
+    cols = ["team", "p_R16", "p_QF", "p_SF", "p_final", "p_win"]
+    top = [{
+        "team": rec["team"],
+        "p_R16": r3(rec["p_R16"]), "p_QF": r3(rec["p_QF"]), "p_SF": r3(rec["p_SF"]),
+        "p_final": r3(rec["p_final"]), "p_win": r3(rec["p_win"]),
+    } for rec in d["pred"].head(8)[cols].to_dict("records")]
+
+    land = d["landing"]
+    landing = {
+        "champion": {"team": land["champion"]["team"], "rank": int(land["champion"]["rank"]),
+                     "p_win": r3(land["champion"]["p_win"])},
+        "runner_up": {"team": land["runner_up"]["team"], "rank": int(land["runner_up"]["rank"]),
+                      "p_final": r3(land["runner_up"]["p_final"])},
+        "semi_finalists": [{"team": sf["team"], "rank": int(sf["rank"])}
+                           for sf in land["semi_finalists"]],
+    }
+
+    rc = d["reach"]
+    reach = {
+        "brier": r4(rc["brier"]), "logloss": r4(rc["logloss"]),
+        "base_brier": r4(rc["base_brier"]), "base_logloss": r4(rc["base_logloss"]),
+    }
+
+    m = d["meta"]
+    meta = {"name": m["name"], "year": int(m["year"]), "n": int(m["n"]),
+            "n_train": int(m["n_train"])}
+
+    return jsonify({"top": top, "landing": landing, "reach": reach, "meta": meta})
 
 
 @app.route("/api/teams")

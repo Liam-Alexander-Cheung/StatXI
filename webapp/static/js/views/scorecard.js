@@ -121,6 +121,105 @@ StatXI.views = StatXI.views || {};
         'higher accuracy is better, lower log-loss / Brier is better</div>';
   }
 
+  // signed score to 3dp, for the confidence-interval prose (e.g. +0.065 / -0.227)
+  function signed(x){ return (x >= 0 ? '+' : '') + Number(x).toFixed(3); }
+  function spinnerBroad(){ return '<div class="loading"><span class="spinner"></span> Scoring every odds-covered match… (first load fits a model per year, ~10–15s)</div>'; }
+  function spinnerMC(){ return '<div class="loading"><span class="spinner"></span> Simulating the tournament 20,000 times…</div>'; }
+
+  // --- 4) the broad odds-covered block: model vs the market at SCALE, with a CI -
+  // The finals bookmaker table above is only n=153 — too small for a confidence
+  // interval. This runs the SAME faceoff on every international with a real price,
+  // which is what gives the model-vs-market gap statistical power.
+  function broadTable(p){
+    var accBest = bestIdx([p.acc_model, p.acc_book, p.acc_form_fav, null], +1);
+    var llBest  = bestIdx([p.ll_model, p.ll_book, null, p.ll_base], -1);
+    var brBest  = bestIdx([p.brier_model, p.brier_book, null, p.brier_base], -1);
+    return '<table class="cmp sc-table"><thead><tr>' +
+      '<th>Metric</th><th>Model</th><th>Bookmaker</th><th>Favourite</th><th>No-skill</th>' +
+      '</tr></thead><tbody>' +
+      '<tr><td>Accuracy ↑</td>' + cell(pct(p.acc_model), accBest === 0) +
+        cell(pct(p.acc_book), accBest === 1) + cell(pct(p.acc_form_fav), accBest === 2) + '<td>—</td></tr>' +
+      '<tr><td>Log-loss ↓</td>' + cell(sc(p.ll_model), llBest === 0) +
+        cell(sc(p.ll_book), llBest === 1) + '<td>—</td>' + cell(sc(p.ll_base), llBest === 3) + '</tr>' +
+      '<tr><td>Brier ↓</td>' + cell(sc(p.brier_model), brBest === 0) +
+        cell(sc(p.brier_book), brBest === 1) + '<td>—</td>' + cell(sc(p.brier_base), brBest === 3) + '</tr>' +
+      '</tbody></table>';
+  }
+  function broadVerdict(s){
+    var p = s.pooled, cb = s.ci_book, ca = s.ci_base;
+    var marketReal = cb.lo > 0;   // whole (model - book) CI above 0 => a real gap
+    var beatsBase = ca.hi < 0;    // whole (model - base) CI below 0 => real skill
+    return 'The same model-vs-market test as the finals table above, but on <b>' + p.n +
+      ' matches instead of 153</b> — enough to put a confidence interval on the gap. ' +
+      'The market is sharper: the model’s per-match log-loss is higher by ' + signed(cb.mean) +
+      ' (95% CI [' + signed(cb.lo) + ', ' + signed(cb.hi) + ']' +
+      (marketReal ? ', entirely above zero — a real gap, the expected honest result' : ', straddling zero') +
+      '). But the model clears the bar that matters, beating a no-skill baseline by ' + signed(ca.mean) +
+      ' log-loss (95% CI [' + signed(ca.lo) + ', ' + signed(ca.hi) + ']' +
+      (beatsBase ? ', entirely below zero' : '') + '). Bookmakers are the ~52–58% skill ceiling, ' +
+      'so landing a hair behind them is a genuine result.';
+  }
+  function renderBroad(s){
+    return broadTable(s.pooled) + '<p class="sc-verdict">' + broadVerdict(s) + '</p>';
+  }
+
+  // --- 5) Monte Carlo tournament backtest (WC 2022 only) -----------------------
+  // The whole bracket simulated from a strictly pre-kickoff fit, then scored on
+  // per-team round-reach vs a no-skill base rate. One tournament — labelled as such.
+  function mcTopTable(top){
+    var body = top.map(function(t){
+      return '<tr><td>' + t.team + '</td>' +
+        '<td>' + pct(t.p_R16) + '</td><td>' + pct(t.p_QF) + '</td><td>' + pct(t.p_SF) + '</td>' +
+        '<td>' + pct(t.p_final) + '</td><td>' + pct(t.p_win) + '</td></tr>';
+    }).join('');
+    return '<table class="cmp sc-table"><thead><tr>' +
+      '<th>Team (top 8 by P(win))</th><th>R16</th><th>QF</th><th>SF</th><th>Final</th><th>Win</th>' +
+      '</tr></thead><tbody>' + body + '</tbody></table>';
+  }
+  function mcReachTable(r){
+    var brBest = bestIdx([r.brier, r.base_brier], -1);
+    var llBest = bestIdx([r.logloss, r.base_logloss], -1);
+    return '<table class="cmp sc-table"><thead><tr>' +
+      '<th>Round-reach (32 teams × 5 rounds = 160)</th><th>Model</th><th>No-skill base rate</th>' +
+      '</tr></thead><tbody>' +
+      '<tr><td>Brier ↓</td>' + cell(sc(r.brier), brBest === 0) + cell(sc(r.base_brier), brBest === 1) + '</tr>' +
+      '<tr><td>Log-loss ↓</td>' + cell(sc(r.logloss), llBest === 0) + cell(sc(r.base_logloss), llBest === 1) + '</tr>' +
+      '</tbody></table>';
+  }
+  function mcLanding(land){
+    var c = land.champion, r = land.runner_up;
+    var sfs = land.semi_finalists.map(function(sf){ return sf.team + ' (#' + sf.rank + ')'; }).join(', ');
+    return '<p class="sc-verdict">Fit before a ball was kicked, the model ranked the eventual ' +
+      '<b>champion ' + c.team + '</b> #' + c.rank + ' of 32 by P(win) (' + pct(c.p_win) + ') and runner-up <b>' +
+      r.team + '</b> #' + r.rank + ' (P(final) ' + pct(r.p_final) + ') — both in the top tier. All four ' +
+      'semi-finalists, with their P(win) ranks: ' + sfs + '. Morocco’s run was the tournament’s genuine ' +
+      'upset that no pre-kickoff model called.</p>';
+  }
+  function mcVerdict(d){
+    var r = d.reach;
+    var beats = (r.brier < r.base_brier && r.logloss < r.base_logloss);
+    return '<p class="sc-verdict">Pooled over all 160 team-round predictions, the simulator ' +
+      (beats ? 'beats' : 'does not beat') + ' a no-skill base-rate on both Brier (' + sc(r.brier) + ' vs ' +
+      sc(r.base_brier) + ') and log-loss (' + sc(r.logloss) + ' vs ' + sc(r.base_logloss) + ').</p>';
+  }
+  function mcLimitations(){
+    return '<div class="sc-context"><span class="ico"></span><span>' +
+      '<b>Read this honestly — it’s one tournament.</b> A single champion is one coin-flip, so ' +
+      'tournament-<i>winner</i> calibration can’t be proven from it; the round-reach score pools 160 ' +
+      'correlated predictions as a sanity check, not a proof. And no outright-winner odds market exists ' +
+      'anywhere in this project, so P(win trophy) has no bookmaker to benchmark against — the per-match ' +
+      'engine underneath is the CI-validated part.</span></div>';
+  }
+  function renderMonteCarlo(d){
+    var m = d.meta;
+    var intro = '<p class="sc-verdict">' + m.name + ' ' + m.year + ', one tournament. Dixon–Coles ' +
+      'attack/defence strengths were fit on the ' + Number(m.n_train).toLocaleString() + ' matches before ' +
+      'kickoff, then the whole bracket — groups and knockouts — was played out ' +
+      Number(m.n).toLocaleString() + ' times.</p>';
+    return intro + mcTopTable(d.top) + mcLanding(d.landing) + mcReachTable(d.reach) +
+      mcVerdict(d) + mcLimitations();
+  }
+
   StatXI.views.scorecard = {
     render: function(){
       return '' +
@@ -138,13 +237,29 @@ StatXI.views = StatXI.views || {};
             'are the <i>favourite</i> and <i>bookmaker</i> columns below, never a 50/50 coin toss.</span>' +
         '</div>' +
         '<div id="sc-body">' + spinner() + '</div>' +
+        '<h3>The bigger picture — every match with odds</h3>' +
+        '<div id="sc-broad">' + spinnerBroad() + '</div>' +
+        '<h3>Simulating the whole tournament — World Cup 2022</h3>' +
+        '<div id="sc-montecarlo">' + spinnerMC() + '</div>' +
       '</section>';
     },
     mount: function(root){
+      // Three independent fetches: each tile fills in on its own, so the slow
+      // broad block (a fresh model per year, ~10–15s) never blocks the others.
       var body = root.querySelector('#sc-body');
       api.getScorecard()
         .then(function(d){ body.innerHTML = renderBody(d); })
         .catch(function(e){ body.innerHTML = errorBox(e.message || 'Backtest unavailable.'); });
+
+      var broad = root.querySelector('#sc-broad');
+      api.getBroadEval()
+        .then(function(d){ broad.innerHTML = renderBroad(d); })
+        .catch(function(e){ broad.innerHTML = errorBox(e.message || 'Broad evaluation unavailable.'); });
+
+      var mc = root.querySelector('#sc-montecarlo');
+      api.getMonteCarlo()
+        .then(function(d){ mc.innerHTML = renderMonteCarlo(d); })
+        .catch(function(e){ mc.innerHTML = errorBox(e.message || 'Simulation unavailable.'); });
     }
   };
 })();

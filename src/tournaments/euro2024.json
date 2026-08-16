@@ -1,0 +1,64 @@
+{
+  "name": "UEFA Euro",
+  "year": 2024,
+  "start_date": "2024-06-14",
+  "format": "euro24",
+  "qualify_per_group": 2,
+  "_comment": "Hand-encoded SOURCE data (committed, unlike the regenerable DB). Team names use the matches-table DB spelling; the six groups were reconstructed + verified directly from the DB's Euro-2024 group-stage match graph (Czech Republic / Turkey, NOT Czechia / Turkiye). 24-team 'euro24' format: six groups of four, top-2 of each group PLUS the four best third-placed teams advance to the Round of 16. Bracket 'home'/'away' are venue-neutral labels: '1A'=winner group A, '2B'=runner-up group B, '3vB'/'3vC'/'3vE'/'3vF'=the best-third assigned to face the winner of group B/C/E/F (which group's third fills each is resolved per-simulation from the six thirds via this config's own thirds_table below, UEFA's fixed anti-rematch table for the modern 2020/2024 bracket - note Euro 2016 used a DIFFERENT layout, so the table lives in each config, not as a shared constant). 'W38'=winner of match 38. Match ids 37-51 follow the official Euro-2024 numbering (3rd-place match omitted; there is none). Cross-checkable against https://en.wikipedia.org/wiki/UEFA_Euro_2024 (Tomas's manual-verification domain). Sanity note: the four thirds that actually qualified were from groups C/D/E/F, and EURO_THIRDS_TABLE['CDEF'] reproduces the real R16 assignments exactly (Spain-Georgia, England-Slovakia, Romania-Netherlands, Portugal-Slovenia).",
+  "third_slots": ["3vB", "3vC", "3vE", "3vF"],
+  "thirds_table": {
+    "ABCD": ["A", "D", "B", "C"], "ABCE": ["A", "E", "B", "C"], "ABCF": ["A", "F", "B", "C"],
+    "ABDE": ["D", "E", "A", "B"], "ABDF": ["D", "F", "A", "B"], "ABEF": ["E", "F", "B", "A"],
+    "ACDE": ["E", "D", "C", "A"], "ACDF": ["F", "D", "C", "A"], "ACEF": ["E", "F", "C", "A"],
+    "ADEF": ["E", "F", "D", "A"], "BCDE": ["E", "D", "B", "C"], "BCDF": ["F", "D", "C", "B"],
+    "BCEF": ["F", "E", "C", "B"], "BDEF": ["F", "E", "D", "B"], "CDEF": ["F", "E", "D", "C"]
+  },
+  "groups": {
+    "A": ["Germany", "Switzerland", "Hungary", "Scotland"],
+    "B": ["Spain", "Italy", "Croatia", "Albania"],
+    "C": ["England", "Denmark", "Slovenia", "Serbia"],
+    "D": ["Austria", "France", "Netherlands", "Poland"],
+    "E": ["Romania", "Belgium", "Slovakia", "Ukraine"],
+    "F": ["Portugal", "Turkey", "Georgia", "Czech Republic"]
+  },
+  "bracket": {
+    "R16": [
+      {"id": 37, "home": "1A", "away": "2C"},
+      {"id": 38, "home": "1B", "away": "3vB"},
+      {"id": 39, "home": "1F", "away": "3vF"},
+      {"id": 40, "home": "2D", "away": "2E"},
+      {"id": 41, "home": "1E", "away": "3vE"},
+      {"id": 42, "home": "1D", "away": "2F"},
+      {"id": 43, "home": "1C", "away": "3vC"},
+      {"id": 44, "home": "2A", "away": "2B"}
+    ],
+    "QF": [
+      {"id": 45, "home": "W38", "away": "W37"},
+      {"id": 46, "home": "W39", "away": "W40"},
+      {"id": 47, "home": "W43", "away": "W44"},
+      {"id": 48, "home": "W41", "away": "W42"}
+    ],
+    "SF": [
+      {"id": 49, "home": "W45", "away": "W46"},
+      {"id": 50, "home": "W47", "away": "W48"}
+    ],
+    "F": [
+      {"id": 51, "home": "W49", "away": "W50"}
+    ]
+  },
+  "actual": {
+    "champion": "Spain",
+    "runner_up": "England",
+    "semi_finalists": ["Spain", "France", "England", "Netherlands"],
+    "quarter_finalists": ["Spain", "France", "England", "Netherlands", "Germany", "Portugal", "Switzerland", "Turkey"],
+    "third_qualifiers": ["Slovenia", "Netherlands", "Slovakia", "Georgia"],
+    "group_winners": {
+      "A": "Germany", "B": "Spain", "C": "England",
+      "D": "Austria", "E": "Romania", "F": "Portugal"
+    },
+    "group_runners_up": {
+      "A": "Switzerland", "B": "Italy", "C": "Denmark",
+      "D": "France", "E": "Belgium", "F": "Turkey"
+    }
+  }
+}

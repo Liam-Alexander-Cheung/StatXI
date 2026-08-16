@@ -1807,13 +1807,57 @@ trophy) has no bookmaker benchmark — unlike the per-match engine, which IS CI-
 validated (Phase 4). The simulator's rigor rests on that validated per-match engine
 plus round-level sanity.
 
-### Later (explicitly out of scope here)
-Euro's 24-team "best-thirds" format + config; a fitted shootout model in place of the
-coin flip; the single-match MC as an explicit analytic cross-check inside the
-pipeline; and the clearly-labelled hypothetical Euro 2028 run (needs the Euro format
-+ a projected group draw). `python -m src.models.montecarlo` runs the Phase-A
-cross-check and a seeded WC 2022 simulation; `python -m src.models.montecarlo_eval`
-runs the Phase-E backtest.
+### Broadening the backtest to the three Euros (2026-08-16)
+WC 2022 alone is one champion — one Bernoulli draw. To rest the trophy claim on more
+than a single event, the same pre-tournament round-reach backtest now also runs on
+**Euro 2016, 2020 and 2024**. `run(name)` reports one tournament; `main()` (what
+`make montecarlo-eval` now runs) does all four and pools them. Pooled over 520
+team-round predictions the simulator **beats the no-skill base rate** on both metrics
+(Brier 0.111 vs 0.136, log-loss 0.344 vs 0.426). The per-tournament honesty is the
+point: the model rated the actual champion Spain **#1/24** at Euro 2024, but the two
+underdog champions — **Portugal 5th at Euro 2016, Italy 6th at Euro 2020** — only
+mid-table, exactly as a pre-tournament model should. It is not tuned to crown the
+favourite.
+
+**The 24-team "best-thirds" format, done properly.** The Euro advances the six group
+winners and runners-up PLUS the four best of the six third-placed teams, and UEFA
+fixes *which* group winner each qualifying third faces with a 15-row anti-rematch
+table (a winner never plays its own group's third). The simulator now surfaces each
+group's 3rd-placed team plus a cross-group-comparable ranking key (`simulate_group`),
+ranks the six thirds per simulation, takes the top four, and routes them to the four
+third-slots via that table — vectorised as one mask per the ≤15 combinations, not a
+Python loop over sims. Everything downstream (the knockout bracket, the 16/8/4/2 reach
+assertions, champion-sums-to-1) was already format-agnostic and did not change.
+
+**The finding that shaped the design: the editions are NOT the same bracket.** The
+plan assumed one shared Euro layout. Cross-checking each edition's *actual* Round-of-16
+ties against the group standings proved otherwise: Euro 2020 and 2024 share the modern
+layout (winners 1B/1C/1E/1F host a third), but **Euro 2016 used a different one**
+(winners 1A/1B/1C/1D) with its own distinct table. So the table lives **inside each
+config** next to its bracket, not as one shared constant — `euro2016.json` carries its
+own, `euro2020.json` and `euro2024.json` the modern one. Each config's table is
+validated on load (15 combos, a bijection per row, no same-group pairing), and the
+simulation was checked to produce **zero same-group R16 rematches** across thousands of
+sims for all three — the direct test that the per-edition wiring is right.
+
+**Verification, the project's usual way — data reconstructed, not trusted.** Each
+Euro's six groups were rebuilt from the DB's own group-stage match graph (six cliques
+of four), not typed from memory, which also pinned the DB spellings (`Czech Republic`,
+`Turkey`, `Republic of Ireland` — the DB predates the rebrands). Standings and thirds
+combinations were then confirmed by the strongest check available: the hand-encoded
+config must **reproduce the real R16 draw** — and it does (e.g. Euro 2024's qualifying
+thirds came from groups C/D/E/F, and `thirds_table["CDEF"]` reproduces Spain-Georgia,
+England-Slovakia, Romania-Netherlands, Portugal-Slovenia exactly). Throughout, **WC
+2022's backtest stayed byte-identical** — the extension is provably additive, the World
+Cup path untouched.
+
+**Still later (unchanged):** a fitted penalty-shootout model in place of the ~50/50
+coin flip, and the clearly-labelled hypothetical Euro 2028 run (needs a projected group
+draw). Euro games are simulated neutral, like the World Cup (Qatar) — a documented
+simplification, not a host-advantage model. `python -m src.models.montecarlo` runs the
+Phase-A cross-check and a seeded WC 2022 simulation; `python -m src.models.montecarlo_eval`
+(or `make montecarlo-eval`) runs the four-tournament pooled backtest, `run("euro2024")`
+a single one.
 
 ## Tooling: a `Makefile` so every script is `make <name>`
 
@@ -1995,8 +2039,33 @@ cheap, because the Poisson fit and XGBoost model are cached per date — so what
 on return is guaranteed consistent, not stale. State is in-memory only (a full reload
 resets to the default matchup), which was the accepted simplicity trade.
 
-**Still CLI-only (next webapp increment).** Two eval sources are not yet surfaced: the
-broad odds-covered block (`broader_eval.py`, n≈2184 with a paired-bootstrap CI on the
-model−market gap) and the Monte Carlo tournament round-reach backtest
-(`montecarlo_eval.py`, WC 2022). Both are the same surfacing-not-modelling job, planned
-as further sections on this page.
+**The last two eval sources, now on the scorecard (2026-08-16).** The two results that had
+lived only in a terminal are now two further sections on `#/scorecard`, built the same
+surface-don't-remodel way as the rest of the page — neither adds any modelling; each is a
+display layer over numbers a `make` target already prints.
+
+- *The bigger picture — every match with odds (`broader_eval.py`, n=2184).* The scorecard's
+  bookmaker faceoff is finals-only (n=153), too small to carry a confidence interval. This
+  section runs the identical model-vs-market comparison across every international with a
+  de-vigged price and reports the paired-bootstrap 95% CIs: the market is genuinely sharper
+  (model−book log-loss +0.0645, CI [+0.053, +0.076], entirely above zero — the expected,
+  honest result), while the model still clears the bar that matters, beating no-skill by
+  −0.227 log-loss (CI [−0.248, −0.206], entirely below zero).
+- *Simulating the whole tournament — WC 2022 (`montecarlo_eval.py`).* The pre-kickoff Monte
+  Carlo backtest: top-8 by simulated P(win), where the actual champion / runner-up /
+  semi-finalists landed (Argentina ranked 3rd, France 6th — both in the top tier), and the
+  round-reach Brier / log-loss against the no-skill base rate (0.105 vs 0.127, 0.325 vs
+  0.401 — beats no-skill on both). The page repeats the CLI's two honest caveats verbatim:
+  it is one tournament (winner calibration unprovable), and there is no outright-winner odds
+  market to benchmark P(win trophy) against.
+
+**One number source, again.** Both followed the `walk_forward.summarize` precedent so the
+page and the CLI cannot drift: `broader_eval.report()` was rewritten to print from a new
+pure `summarize(rows, pooled)`, and `montecarlo_eval.run()` from a new pure
+`evaluate(name, n, seed, matches=None)` — the webapp's `/api/broad-eval` and
+`/api/montecarlo` call those very functions. Each refactor was checked the project's
+standard way: `make broader-eval` and `make montecarlo-eval` captured before and after and
+`diff`'d to byte-identical, then the live endpoints re-verified against those CLI numbers to
+the displayed decimal. Both endpoints are lazy + cached and deliberately not warmed at
+startup (each is one page's ~10 s cost), and the two tiles fetch independently so the slow
+broad block never blocks the Monte Carlo one.
